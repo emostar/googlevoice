@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -28,7 +28,7 @@ import (
 	"maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/util/dbutil"
 
-	"maunium.net/go/mautrix-whatsapp/database/upgrades"
+	"github.com/emostar/mautrix-gvoice/database/upgrades"
 )
 
 func init() {

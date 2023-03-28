@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -52,7 +52,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 type User struct {
@@ -60,7 +60,7 @@ type User struct {
 	Client  *whatsmeow.Client
 	Session *store.Device
 
-	bridge *WABridge
+	bridge *GVBride
 	log    log.Logger
 
 	Admin            bool
@@ -97,7 +97,7 @@ type resyncQueueItem struct {
 	puppet *Puppet
 }
 
-func (br *WABridge) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
+func (br *GVBride) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
 	_, isPuppet := br.ParsePuppetMXID(userID)
 	if isPuppet || userID == br.Bot.UserID {
 		return nil
@@ -115,11 +115,11 @@ func (br *WABridge) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
 	return user
 }
 
-func (br *WABridge) GetUserByMXID(userID id.UserID) *User {
+func (br *GVBride) GetUserByMXID(userID id.UserID) *User {
 	return br.getUserByMXID(userID, false)
 }
 
-func (br *WABridge) GetIUser(userID id.UserID, create bool) bridge.User {
+func (br *GVBride) GetIUser(userID id.UserID, create bool) bridge.User {
 	u := br.getUserByMXID(userID, !create)
 	if u == nil {
 		return nil
@@ -143,11 +143,11 @@ func (user *User) GetCommandState() map[string]interface{} {
 	return nil
 }
 
-func (br *WABridge) GetUserByMXIDIfExists(userID id.UserID) *User {
+func (br *GVBride) GetUserByMXIDIfExists(userID id.UserID) *User {
 	return br.getUserByMXID(userID, true)
 }
 
-func (br *WABridge) GetUserByJID(jid types.JID) *User {
+func (br *GVBride) GetUserByJID(jid types.JID) *User {
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 	user, ok := br.usersByUsername[jid.User]
@@ -174,7 +174,7 @@ func (user *User) removeFromJIDMap(state status.BridgeState) {
 	user.BridgeState.Send(state)
 }
 
-func (br *WABridge) GetAllUsers() []*User {
+func (br *GVBride) GetAllUsers() []*User {
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 	dbUsers := br.DB.User.GetAll()
@@ -189,7 +189,7 @@ func (br *WABridge) GetAllUsers() []*User {
 	return output
 }
 
-func (br *WABridge) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
+func (br *GVBride) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
 	if dbUser == nil {
 		if mxid == nil {
 			return nil
@@ -202,7 +202,7 @@ func (br *WABridge) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
 	br.usersByMXID[user.MXID] = user
 	if !user.JID.IsEmpty() {
 		var err error
-		user.Session, err = br.WAContainer.GetDevice(user.JID)
+		user.Session, err = br.GVContainer.GetDevice(user.JID)
 		if err != nil {
 			user.log.Errorfln("Failed to load user's whatsapp session: %v", err)
 		} else if user.Session == nil {
@@ -220,7 +220,7 @@ func (br *WABridge) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
 	return user
 }
 
-func (br *WABridge) NewUser(dbUser *database.User) *User {
+func (br *GVBride) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,
 		bridge: br,
@@ -358,7 +358,9 @@ func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, 
 	}
 	_, err := intent.InviteUser(roomID, &mautrix.ReqInviteUser{UserID: user.MXID}, extraContent)
 	var httpErr mautrix.HTTPError
-	if err != nil && errors.As(err, &httpErr) && httpErr.RespError != nil && strings.Contains(httpErr.RespError.Err, "is already in the room") {
+	if err != nil && errors.As(err, &httpErr) && httpErr.RespError != nil && strings.Contains(
+		httpErr.RespError.Err, "is already in the room",
+	) {
 		user.bridge.StateStore.SetMembership(roomID, user.MXID, event.MembershipJoin)
 		ok = true
 		return
@@ -392,28 +394,30 @@ func (user *User) GetSpaceRoom() id.RoomID {
 			return user.SpaceRoom
 		}
 
-		resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
-			Visibility: "private",
-			Name:       "WhatsApp",
-			Topic:      "Your WhatsApp bridged chats",
-			InitialState: []*event.Event{{
-				Type: event.StateRoomAvatar,
-				Content: event.Content{
-					Parsed: &event.RoomAvatarEventContent{
-						URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
+		resp, err := user.bridge.Bot.CreateRoom(
+			&mautrix.ReqCreateRoom{
+				Visibility: "private",
+				Name:       "WhatsApp",
+				Topic:      "Your WhatsApp bridged chats",
+				InitialState: []*event.Event{{
+					Type: event.StateRoomAvatar,
+					Content: event.Content{
+						Parsed: &event.RoomAvatarEventContent{
+							URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
+						},
+					},
+				}},
+				CreationContent: map[string]interface{}{
+					"type": event.RoomTypeSpace,
+				},
+				PowerLevelOverride: &event.PowerLevelsEventContent{
+					Users: map[id.UserID]int{
+						user.bridge.Bot.UserID: 9001,
+						user.MXID:              50,
 					},
 				},
-			}},
-			CreationContent: map[string]interface{}{
-				"type": event.RoomTypeSpace,
 			},
-			PowerLevelOverride: &event.PowerLevelsEventContent{
-				Users: map[id.UserID]int{
-					user.bridge.Bot.UserID: 9001,
-					user.MXID:              50,
-				},
-			},
-		})
+		)
 
 		if err != nil {
 			user.log.Errorln("Failed to auto-create space room:", err)
@@ -441,11 +445,13 @@ func (user *User) GetManagementRoom() id.RoomID {
 		if !user.bridge.Config.Bridge.FederateRooms {
 			creationContent["m.federate"] = false
 		}
-		resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
-			Topic:           "WhatsApp bridge notices",
-			IsDirect:        true,
-			CreationContent: creationContent,
-		})
+		resp, err := user.bridge.Bot.CreateRoom(
+			&mautrix.ReqCreateRoom{
+				Topic:           "WhatsApp bridge notices",
+				IsDirect:        true,
+				CreationContent: creationContent,
+			},
+		)
 		if err != nil {
 			user.log.Errorln("Failed to auto-create management room:", err)
 		} else {
@@ -479,7 +485,11 @@ var ErrAlreadyLoggedIn = errors.New("already logged in")
 
 func (user *User) obfuscateJID(jid types.JID) string {
 	// Turn the first 4 bytes of HMAC-SHA256(hs_token, phone) into a number and replace the middle of the actual phone with that deterministic random number.
-	randomNumber := binary.BigEndian.Uint32(hmac.New(sha256.New, []byte(user.bridge.Config.AppService.HSToken)).Sum([]byte(jid.User))[:4])
+	randomNumber := binary.BigEndian.Uint32(
+		hmac.New(
+			sha256.New, []byte(user.bridge.Config.AppService.HSToken),
+		).Sum([]byte(jid.User))[:4],
+	)
 	return fmt.Sprintf("+%s-%d-%s:%d", jid.User[:1], randomNumber, jid.User[len(jid.User)-2:], jid.Device)
 }
 
@@ -488,19 +498,23 @@ func (user *User) createClient(sess *store.Device) {
 	user.Client.AddEventHandler(user.HandleEvent)
 	user.Client.SetForceActiveDeliveryReceipts(user.bridge.Config.Bridge.ForceActiveDeliveryReceipts)
 	user.Client.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waProto.Message {
-		Segment.Track(user.MXID, "WhatsApp incoming retry (message not found)", map[string]interface{}{
-			"requester": user.obfuscateJID(requester),
-			"messageID": id,
-		})
+		Segment.Track(
+			user.MXID, "WhatsApp incoming retry (message not found)", map[string]interface{}{
+				"requester": user.obfuscateJID(requester),
+				"messageID": id,
+			},
+		)
 		user.bridge.Metrics.TrackRetryReceipt(0, false)
 		return nil
 	}
 	user.Client.PreRetryCallback = func(receipt *events.Receipt, messageID types.MessageID, retryCount int, msg *waProto.Message) bool {
-		Segment.Track(user.MXID, "WhatsApp incoming retry (accepted)", map[string]interface{}{
-			"requester":  user.obfuscateJID(receipt.Sender),
-			"messageID":  messageID,
-			"retryCount": retryCount,
-		})
+		Segment.Track(
+			user.MXID, "WhatsApp incoming retry (accepted)", map[string]interface{}{
+				"requester":  user.obfuscateJID(receipt.Sender),
+				"messageID":  messageID,
+				"retryCount": retryCount,
+			},
+		)
 		user.bridge.Metrics.TrackRetryReceipt(retryCount, true)
 		return true
 	}
@@ -514,7 +528,7 @@ func (user *User) Login(ctx context.Context) (<-chan whatsmeow.QRChannelItem, er
 	} else if user.Client != nil {
 		user.unlockedDeleteConnection()
 	}
-	newSession := user.bridge.WAContainer.NewDevice()
+	newSession := user.bridge.GVContainer.NewDevice()
 	newSession.Log = &waLogger{user.log.Sub("Session")}
 	user.createClient(newSession)
 	qrChan, err := user.Client.GetQRChannel(ctx)
@@ -542,13 +556,15 @@ func (user *User) Connect() bool {
 	err := user.Client.Connect()
 	if err != nil {
 		user.log.Warnln("Error connecting to WhatsApp:", err)
-		user.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateUnknownError,
-			Error:      WAConnectionFailed,
-			Info: map[string]interface{}{
-				"go_error": err.Error(),
+		user.BridgeState.Send(
+			status.BridgeState{
+				StateEvent: status.StateUnknownError,
+				Error:      WAConnectionFailed,
+				Info: map[string]interface{}{
+					"go_error": err.Error(),
+				},
 			},
-		})
+		)
 		return false
 	}
 	return true
@@ -671,24 +687,32 @@ func (user *User) sendHackyPhonePing() {
 	keyIDs := make([]*waProto.AppStateSyncKeyId, 0, 1)
 	lastKeyID, err := user.GetLastAppStateKeyID()
 	if lastKeyID != nil {
-		keyIDs = append(keyIDs, &waProto.AppStateSyncKeyId{
-			KeyId: lastKeyID,
-		})
-	} else {
-		user.log.Warnfln("Failed to get last app state key ID to send hacky phone ping: %v - sending empty request", err)
-	}
-	resp, err := user.Client.SendMessage(context.Background(), user.JID.ToNonAD(), &waProto.Message{
-		ProtocolMessage: &waProto.ProtocolMessage{
-			Type: waProto.ProtocolMessage_APP_STATE_SYNC_KEY_REQUEST.Enum(),
-			AppStateSyncKeyRequest: &waProto.AppStateSyncKeyRequest{
-				KeyIds: keyIDs,
+		keyIDs = append(
+			keyIDs, &waProto.AppStateSyncKeyId{
+				KeyId: lastKeyID,
 			},
-		},
-	}, whatsmeow.SendRequestExtra{Peer: true, ID: msgID})
+		)
+	} else {
+		user.log.Warnfln(
+			"Failed to get last app state key ID to send hacky phone ping: %v - sending empty request", err,
+		)
+	}
+	resp, err := user.Client.SendMessage(
+		context.Background(), user.JID.ToNonAD(), &waProto.Message{
+			ProtocolMessage: &waProto.ProtocolMessage{
+				Type: waProto.ProtocolMessage_APP_STATE_SYNC_KEY_REQUEST.Enum(),
+				AppStateSyncKeyRequest: &waProto.AppStateSyncKeyRequest{
+					KeyIds: keyIDs,
+				},
+			},
+		}, whatsmeow.SendRequestExtra{Peer: true, ID: msgID},
+	)
 	if err != nil {
 		user.log.Warnfln("Failed to send hacky phone ping: %v", err)
 	} else {
-		user.log.Debugfln("Sent hacky phone ping %s/%s because phone has been offline for >10 days", msgID, resp.Timestamp.Unix())
+		user.log.Debugfln(
+			"Sent hacky phone ping %s/%s because phone has been offline for >10 days", msgID, resp.Timestamp.Unix(),
+		)
 		user.PhoneLastPinged = resp.Timestamp
 		user.Update()
 	}
@@ -714,7 +738,10 @@ func (user *User) phoneSeen(ts time.Time) {
 			user.log.Debugfln("Saw phone after current bridge state said it has been offline, switching state back to connected")
 			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 		} else {
-			user.log.Debugfln("Saw phone after current bridge state said it has been offline, not sending new bridge state (prev: %s, connected: %t)", user.BridgeState.GetPrev().Error, user.IsConnected())
+			user.log.Debugfln(
+				"Saw phone after current bridge state said it has been offline, not sending new bridge state (prev: %s, connected: %t)",
+				user.BridgeState.GetPrev().Error, user.IsConnected(),
+			)
 		}
 	}
 	user.PhoneLastSeen = ts
@@ -740,7 +767,10 @@ func (user *User) sendPhoneOfflineWarning() {
 	}
 	user.lastPhoneOfflineWarning = time.Now()
 	timeSinceSeen := time.Now().Sub(user.PhoneLastSeen)
-	user.sendMarkdownBridgeAlert("Your phone hasn't been seen in %s. The server will force the bridge to log out if the phone is not active at least every 2 weeks.", formatDisconnectTime(timeSinceSeen))
+	user.sendMarkdownBridgeAlert(
+		"Your phone hasn't been seen in %s. The server will force the bridge to log out if the phone is not active at least every 2 weeks.",
+		formatDisconnectTime(timeSinceSeen),
+	)
 }
 
 func (user *User) HandleEvent(event interface{}) {
@@ -765,14 +795,22 @@ func (user *User) HandleEvent(event interface{}) {
 			user.historySyncLoopsStarted = true
 		}
 	case *events.OfflineSyncPreview:
-		user.log.Infofln("Server says it's going to send %d messages and %d receipts that were missed during downtime", v.Messages, v.Receipts)
-		user.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateBackfilling,
-			Message:    fmt.Sprintf("backfilling %d messages and %d receipts", v.Messages, v.Receipts),
-		})
+		user.log.Infofln(
+			"Server says it's going to send %d messages and %d receipts that were missed during downtime", v.Messages,
+			v.Receipts,
+		)
+		user.BridgeState.Send(
+			status.BridgeState{
+				StateEvent: status.StateBackfilling,
+				Message:    fmt.Sprintf("backfilling %d messages and %d receipts", v.Messages, v.Receipts),
+			},
+		)
 	case *events.OfflineSyncCompleted:
 		if !user.PhoneRecentlySeen(true) {
-			user.log.Infofln("Offline sync completed, but phone last seen date is still %s - sending phone offline bridge status", user.PhoneLastSeen)
+			user.log.Infofln(
+				"Offline sync completed, but phone last seen date is still %s - sending phone offline bridge status",
+				user.PhoneLastSeen,
+			)
 			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: WAPhoneOffline})
 		} else {
 			if user.BridgeState.GetPrev().StateEvent == status.StateBackfilling {
@@ -828,7 +866,11 @@ func (user *User) HandleEvent(event interface{}) {
 			user.sendMarkdownBridgeAlert("The bridge was started in another location. Use `reconnect` to reconnect this one.")
 		}
 	case *events.ConnectFailure:
-		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Message: fmt.Sprintf("Unknown connection failure: %s", v.Reason)})
+		user.BridgeState.Send(
+			status.BridgeState{StateEvent: status.StateUnknownError, Message: fmt.Sprintf(
+				"Unknown connection failure: %s", v.Reason,
+			)},
+		)
 		user.bridge.Metrics.TrackConnectionState(user.JID, false)
 	case *events.ClientOutdated:
 		user.log.Errorfln("Got a client outdated connect failure. The bridge is likely out of date, please update immediately.")
@@ -965,9 +1007,11 @@ func (user *User) updateChatMute(intent *appservice.IntentAPI, portal *Portal, m
 		err = intent.DeletePushRule("global", pushrules.RoomRule, string(portal.MXID))
 	} else {
 		user.log.Debugfln("Portal %s is muted until %s, muting...", portal.MXID, mutedUntil)
-		err = intent.PutPushRule("global", pushrules.RoomRule, string(portal.MXID), &mautrix.ReqPutPushRule{
-			Actions: []pushrules.PushActionType{pushrules.ActionDontNotify},
-		})
+		err = intent.PutPushRule(
+			"global", pushrules.RoomRule, string(portal.MXID), &mautrix.ReqPutPushRule{
+				Actions: []pushrules.PushActionType{pushrules.ActionDontNotify},
+			},
+		)
 	}
 	if err != nil && !errors.Is(err, mautrix.MNotFound) {
 		user.log.Warnfln("Failed to update push rule for %s through double puppet: %v", portal.MXID, err)
@@ -1086,12 +1130,14 @@ func (user *User) UpdateDirectChats(chats map[id.UserID][]id.RoomID) {
 	var err error
 	if user.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareAsmux {
 		urlPath := intent.BuildClientURL("unstable", "com.beeper.asmux", "dms")
-		_, err = intent.MakeFullRequest(mautrix.FullRequest{
-			Method:      method,
-			URL:         urlPath,
-			Headers:     http.Header{"X-Asmux-Auth": {user.bridge.AS.Registration.AppToken}},
-			RequestJSON: chats,
-		})
+		_, err = intent.MakeFullRequest(
+			mautrix.FullRequest{
+				Method:      method,
+				URL:         urlPath,
+				Headers:     http.Header{"X-Asmux-Auth": {user.bridge.AS.Registration.AppToken}},
+				RequestJSON: chats,
+			},
+		)
 	} else {
 		existingChats := make(map[id.UserID][]id.RoomID)
 		err = intent.GetAccountData(event.AccountDataDirectChats.Type, &existingChats)
@@ -1128,7 +1174,10 @@ func (user *User) handleLoggedOut(onConnect bool, reason events.ConnectFailureRe
 	user.JID = types.EmptyJID
 	user.Update()
 	if onConnect {
-		user.sendMarkdownBridgeAlert("Connecting to WhatsApp failed as the device was unlinked (error %s). Please link the bridge to your phone again.", reason)
+		user.sendMarkdownBridgeAlert(
+			"Connecting to WhatsApp failed as the device was unlinked (error %s). Please link the bridge to your phone again.",
+			reason,
+		)
 	} else {
 		user.sendMarkdownBridgeAlert("You were logged out from another device. Please link the bridge to your phone again.")
 	}
@@ -1269,16 +1318,20 @@ func (user *User) markUnread(portal *Portal, unread bool) {
 		return
 	}
 
-	err := puppet.CustomIntent().SetRoomAccountData(portal.MXID, "m.marked_unread",
-		map[string]bool{"unread": unread})
+	err := puppet.CustomIntent().SetRoomAccountData(
+		portal.MXID, "m.marked_unread",
+		map[string]bool{"unread": unread},
+	)
 	if err != nil {
 		user.log.Warnfln("Failed to mark %s as unread via m.marked_unread: %v", portal.MXID, err)
 	} else {
 		user.log.Debugfln("Marked %s as unread via m.marked_unread: %v", portal.MXID, err)
 	}
 
-	err = puppet.CustomIntent().SetRoomAccountData(portal.MXID, "com.famedly.marked_unread",
-		map[string]bool{"unread": unread})
+	err = puppet.CustomIntent().SetRoomAccountData(
+		portal.MXID, "com.famedly.marked_unread",
+		map[string]bool{"unread": unread},
+	)
 	if err != nil {
 		user.log.Warnfln("Failed to mark %s as unread via com.famedly.marked_unread: %v", portal.MXID, err)
 	} else {
@@ -1343,12 +1396,16 @@ func (user *User) handleGroupUpdate(evt *events.GroupInfo) {
 func (user *User) handlePictureUpdate(evt *events.Picture) {
 	if evt.JID.Server == types.DefaultUserServer {
 		puppet := user.bridge.GetPuppetByJID(evt.JID)
-		user.log.Debugfln("Received picture update for puppet %s (current: %s, new: %s)", evt.JID, puppet.Avatar, evt.PictureID)
+		user.log.Debugfln(
+			"Received picture update for puppet %s (current: %s, new: %s)", evt.JID, puppet.Avatar, evt.PictureID,
+		)
 		if puppet.Avatar != evt.PictureID {
 			puppet.Sync(user, nil, true, false)
 		}
 	} else if portal := user.GetPortalByJID(evt.JID); portal != nil {
-		user.log.Debugfln("Received picture update for portal %s (current: %s, new: %s)", evt.JID, portal.Avatar, evt.PictureID)
+		user.log.Debugfln(
+			"Received picture update for portal %s (current: %s, new: %s)", evt.JID, portal.Avatar, evt.PictureID,
+		)
 		if portal.Avatar != evt.PictureID {
 			portal.UpdateAvatar(user, evt.Author, true)
 		}

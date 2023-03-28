@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -72,7 +72,9 @@ func (pq *PortalQuery) GetAll() []*Portal {
 }
 
 func (pq *PortalQuery) GetByJID(key PortalKey) *Portal {
-	return pq.get(fmt.Sprintf("SELECT %s FROM portal WHERE jid=$1 AND receiver=$2", portalColumns), key.JID, key.Receiver)
+	return pq.get(
+		fmt.Sprintf("SELECT %s FROM portal WHERE jid=$1 AND receiver=$2", portalColumns), key.JID, key.Receiver,
+	)
 }
 
 func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
@@ -88,16 +90,22 @@ func (pq *PortalQuery) GetAllByParentGroup(jid types.JID) []*Portal {
 }
 
 func (pq *PortalQuery) FindPrivateChats(receiver types.JID) []*Portal {
-	return pq.getAll(fmt.Sprintf("SELECT %s FROM portal WHERE receiver=$1 AND jid LIKE '%%@s.whatsapp.net'", portalColumns), receiver.ToNonAD())
+	return pq.getAll(
+		fmt.Sprintf(
+			"SELECT %s FROM portal WHERE receiver=$1 AND jid LIKE '%%@s.whatsapp.net'", portalColumns,
+		), receiver.ToNonAD(),
+	)
 }
 
 func (pq *PortalQuery) FindPrivateChatsNotInSpace(receiver types.JID) (keys []PortalKey) {
 	receiver = receiver.ToNonAD()
-	rows, err := pq.db.Query(`
+	rows, err := pq.db.Query(
+		`
 		SELECT jid FROM portal
 		    LEFT JOIN user_portal ON portal.jid=user_portal.portal_jid AND portal.receiver=user_portal.portal_receiver
 		WHERE mxid<>'' AND receiver=$1 AND (user_portal.in_space=false OR user_portal.in_space IS NULL)
-	`, receiver)
+	`, receiver,
+	)
 	if err != nil {
 		pq.log.Errorfln("Failed to find private chats not in space for %s: %v", receiver, err)
 		return
@@ -165,7 +173,11 @@ type Portal struct {
 func (portal *Portal) Scan(row dbutil.Scannable) *Portal {
 	var mxid, avatarURL, firstEventID, nextBatchID, relayUserID, parentGroupJID sql.NullString
 	var lastSyncTs int64
-	err := row.Scan(&portal.Key.JID, &portal.Key.Receiver, &mxid, &portal.Name, &portal.NameSet, &portal.Topic, &portal.TopicSet, &portal.Avatar, &avatarURL, &portal.AvatarSet, &portal.Encrypted, &lastSyncTs, &portal.IsParent, &parentGroupJID, &portal.InSpace, &firstEventID, &nextBatchID, &relayUserID, &portal.ExpirationTime)
+	err := row.Scan(
+		&portal.Key.JID, &portal.Key.Receiver, &mxid, &portal.Name, &portal.NameSet, &portal.Topic, &portal.TopicSet,
+		&portal.Avatar, &avatarURL, &portal.AvatarSet, &portal.Encrypted, &lastSyncTs, &portal.IsParent,
+		&parentGroupJID, &portal.InSpace, &firstEventID, &nextBatchID, &relayUserID, &portal.ExpirationTime,
+	)
 	if err != nil {
 		if err != sql.ErrNoRows {
 			portal.log.Errorln("Database scan failed:", err)
@@ -216,16 +228,20 @@ func (portal *Portal) lastSyncTs() int64 {
 }
 
 func (portal *Portal) Insert() {
-	_, err := portal.db.Exec(`
+	_, err := portal.db.Exec(
+		`
 		INSERT INTO portal (jid, receiver, mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
 		                    encrypted, last_sync, is_parent, parent_group, in_space, first_event_id, next_batch_id,
 		                    relay_user_id, expiration_time)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`,
-		portal.Key.JID, portal.Key.Receiver, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic, portal.TopicSet,
+		portal.Key.JID, portal.Key.Receiver, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic,
+		portal.TopicSet,
 		portal.Avatar, portal.AvatarURL.String(), portal.AvatarSet, portal.Encrypted, portal.lastSyncTs(),
-		portal.IsParent, portal.parentGroupPtr(), portal.InSpace, portal.FirstEventID.String(), portal.NextBatchID.String(),
-		portal.relayUserPtr(), portal.ExpirationTime)
+		portal.IsParent, portal.parentGroupPtr(), portal.InSpace, portal.FirstEventID.String(),
+		portal.NextBatchID.String(),
+		portal.relayUserPtr(), portal.ExpirationTime,
+	)
 	if err != nil {
 		portal.log.Warnfln("Failed to insert %s: %v", portal.Key, err)
 	}
@@ -235,16 +251,20 @@ func (portal *Portal) Update(txn dbutil.Execable) {
 	if txn == nil {
 		txn = portal.db
 	}
-	_, err := txn.Exec(`
+	_, err := txn.Exec(
+		`
 		UPDATE portal
 		SET mxid=$1, name=$2, name_set=$3, topic=$4, topic_set=$5, avatar=$6, avatar_url=$7, avatar_set=$8,
 		    encrypted=$9, last_sync=$10, is_parent=$11, parent_group=$12, in_space=$13,
 		    first_event_id=$14, next_batch_id=$15, relay_user_id=$16, expiration_time=$17
 		WHERE jid=$18 AND receiver=$19
-	`, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic, portal.TopicSet, portal.Avatar, portal.AvatarURL.String(),
-		portal.AvatarSet, portal.Encrypted, portal.lastSyncTs(), portal.IsParent, portal.parentGroupPtr(), portal.InSpace,
+	`, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic, portal.TopicSet, portal.Avatar,
+		portal.AvatarURL.String(),
+		portal.AvatarSet, portal.Encrypted, portal.lastSyncTs(), portal.IsParent, portal.parentGroupPtr(),
+		portal.InSpace,
 		portal.FirstEventID.String(), portal.NextBatchID.String(), portal.relayUserPtr(), portal.ExpirationTime,
-		portal.Key.JID, portal.Key.Receiver)
+		portal.Key.JID, portal.Key.Receiver,
+	)
 	if err != nil {
 		portal.log.Warnfln("Failed to update %s: %v", portal.Key, err)
 	}

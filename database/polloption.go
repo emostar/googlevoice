@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -63,7 +63,9 @@ func (msg *Message) GetPollOptionIDs(hashes [][]byte) map[[32]byte]string {
 	if msg.db.Dialect == dbutil.Postgres {
 		args = []any{msg.MXID, pq.Array(hashes)}
 	} else {
-		query = strings.ReplaceAll(query, " = ANY($2)", fmt.Sprintf(" IN (%s)", strings.TrimSuffix(strings.Repeat("?,", len(hashes)), ",")))
+		query = strings.ReplaceAll(
+			query, " = ANY($2)", fmt.Sprintf(" IN (%s)", strings.TrimSuffix(strings.Repeat("?,", len(hashes)), ",")),
+		)
 		args = make([]any, len(hashes)+1)
 		args[0] = msg.MXID
 		for i, hash := range hashes {
@@ -93,7 +95,9 @@ func (msg *Message) GetPollOptionHashes(ids []string) map[string][32]byte {
 	if msg.db.Dialect == dbutil.Postgres {
 		args = []any{msg.MXID, pq.Array(ids)}
 	} else {
-		query = strings.ReplaceAll(query, " = ANY($2)", fmt.Sprintf(" IN (%s)", strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")))
+		query = strings.ReplaceAll(
+			query, " = ANY($2)", fmt.Sprintf(" IN (%s)", strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")),
+		)
 		args = make([]any, len(ids)+1)
 		args[0] = msg.MXID
 		for i, id := range ids {

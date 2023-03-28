@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -253,15 +253,17 @@ const (
 
 func (bc BridgeConfig) FormatDisplayname(jid types.JID, contact types.ContactInfo) (string, int8) {
 	var buf strings.Builder
-	_ = bc.displaynameTemplate.Execute(&buf, legacyContactInfo{
-		ContactInfo: contact,
-		Notify:      contact.PushName,
-		VName:       contact.BusinessName,
-		Name:        contact.FullName,
-		Short:       contact.FirstName,
-		Phone:       "+" + jid.User,
-		JID:         "+" + jid.User,
-	})
+	_ = bc.displaynameTemplate.Execute(
+		&buf, legacyContactInfo{
+			ContactInfo: contact,
+			Notify:      contact.PushName,
+			VName:       contact.BusinessName,
+			Name:        contact.FullName,
+			Short:       contact.FirstName,
+			Phone:       "+" + jid.User,
+			JID:         "+" + jid.User,
+		},
+	)
 	var quality int8
 	switch {
 	case len(contact.PushName) > 0 || len(contact.BusinessName) > 0:
@@ -323,13 +325,15 @@ func (rc *RelaybotConfig) FormatMessage(content *event.MessageEventContent, send
 	}
 	member.Displayname = template.HTMLEscapeString(member.Displayname)
 	var output strings.Builder
-	err := rc.messageTemplates.ExecuteTemplate(&output, string(content.MsgType), formatData{
-		Sender: Sender{
-			UserID:             template.HTMLEscapeString(sender.String()),
-			MemberEventContent: member,
+	err := rc.messageTemplates.ExecuteTemplate(
+		&output, string(content.MsgType), formatData{
+			Sender: Sender{
+				UserID:             template.HTMLEscapeString(sender.String()),
+				MemberEventContent: member,
+			},
+			Content: content,
+			Message: content.FormattedBody,
 		},
-		Content: content,
-		Message: content.FormattedBody,
-	})
+	)
 	return output.String(), err
 }

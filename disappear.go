@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ import (
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util/dbutil"
 
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 func (portal *Portal) MarkDisappearing(txn dbutil.Execable, eventID id.EventID, expiresIn time.Duration, startsAt time.Time) {
@@ -40,7 +40,7 @@ func (portal *Portal) MarkDisappearing(txn dbutil.Execable, eventID id.EventID, 
 	}
 }
 
-func (br *WABridge) SleepAndDeleteUpcoming() {
+func (br *GVBride) SleepAndDeleteUpcoming() {
 	for _, msg := range br.DB.DisappearingMessage.GetUpcomingScheduled(1 * time.Hour) {
 		portal := br.GetPortalByMXID(msg.RoomID)
 		if portal == nil {
@@ -60,10 +60,12 @@ func (portal *Portal) sleepAndDelete(msg *database.DisappearingMessage) {
 	sleepTime := msg.ExpireAt.Sub(time.Now())
 	portal.log.Debugfln("Sleeping for %s to make %s disappear", sleepTime, msg.EventID)
 	time.Sleep(sleepTime)
-	_, err := portal.MainIntent().RedactEvent(msg.RoomID, msg.EventID, mautrix.ReqRedact{
-		Reason: "Message expired",
-		TxnID:  fmt.Sprintf("mxwa_disappear_%s", msg.EventID),
-	})
+	_, err := portal.MainIntent().RedactEvent(
+		msg.RoomID, msg.EventID, mautrix.ReqRedact{
+			Reason: "Message expired",
+			TxnID:  fmt.Sprintf("mxwa_disappear_%s", msg.EventID),
+		},
+	)
 	if err != nil {
 		portal.log.Warnfln("Failed to make %s disappear: %v", msg.EventID, err)
 	} else {

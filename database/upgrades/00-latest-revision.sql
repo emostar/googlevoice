@@ -1,16 +1,11 @@
--- v0 -> v54: Latest revision
+-- v0: Latest revision
 
 CREATE TABLE "user" (
-    mxid     TEXT PRIMARY KEY,
-    username TEXT UNIQUE,
-    agent    SMALLINT,
-    device   SMALLINT,
+    mxid        TEXT PRIMARY KEY,
+    primary_did TEXT UNIQUE,
 
     management_room TEXT,
     space_room      TEXT,
-
-    phone_last_seen   BIGINT,
-    phone_last_pinged BIGINT,
 
     timezone TEXT
 );

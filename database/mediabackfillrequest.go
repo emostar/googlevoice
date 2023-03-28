@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan, Sumner Evans
 //
 // This program is free software: you can redistribute it and/or modify
@@ -82,7 +82,8 @@ const (
 )
 
 func (mbr *MediaBackfillRequest) Upsert() {
-	_, err := mbr.db.Exec(`
+	_, err := mbr.db.Exec(
+		`
 		INSERT INTO media_backfill_requests (user_mxid, portal_jid, portal_receiver, event_id, media_key, status, error)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (user_mxid, portal_jid, portal_receiver, event_id)
@@ -96,14 +97,20 @@ func (mbr *MediaBackfillRequest) Upsert() {
 		mbr.EventID,
 		mbr.MediaKey,
 		mbr.Status,
-		mbr.Error)
+		mbr.Error,
+	)
 	if err != nil {
-		mbr.log.Warnfln("Failed to insert media backfill request %s/%s/%s: %v", mbr.UserID, mbr.PortalKey.String(), mbr.EventID, err)
+		mbr.log.Warnfln(
+			"Failed to insert media backfill request %s/%s/%s: %v", mbr.UserID, mbr.PortalKey.String(), mbr.EventID,
+			err,
+		)
 	}
 }
 
 func (mbr *MediaBackfillRequest) Scan(row dbutil.Scannable) *MediaBackfillRequest {
-	err := row.Scan(&mbr.UserID, &mbr.PortalKey.JID, &mbr.PortalKey.Receiver, &mbr.EventID, &mbr.MediaKey, &mbr.Status, &mbr.Error)
+	err := row.Scan(
+		&mbr.UserID, &mbr.PortalKey.JID, &mbr.PortalKey.Receiver, &mbr.EventID, &mbr.MediaKey, &mbr.Status, &mbr.Error,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			mbr.log.Errorln("Database scan failed:", err)

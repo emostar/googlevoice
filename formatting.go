@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2023 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -39,7 +39,7 @@ const mentionedJIDsContextKey = "fi.mau.whatsapp.mentioned_jids"
 const disableMentionsContextKey = "fi.mau.whatsapp.no_mentions"
 
 type Formatter struct {
-	bridge *WABridge
+	bridge *GVBride
 
 	matrixHTMLParser *format.HTMLParser
 
@@ -48,7 +48,7 @@ type Formatter struct {
 	waReplFuncText map[*regexp.Regexp]func(string) string
 }
 
-func NewFormatter(bridge *WABridge) *Formatter {
+func NewFormatter(bridge *GVBride) *Formatter {
 	formatter := &Formatter{
 		bridge: bridge,
 		matrixHTMLParser: &format.HTMLParser{
@@ -71,11 +71,19 @@ func NewFormatter(bridge *WABridge) *Formatter {
 				}
 				return displayname
 			},
-			BoldConverter:           func(text string, _ format.Context) string { return fmt.Sprintf("*%s*", text) },
-			ItalicConverter:         func(text string, _ format.Context) string { return fmt.Sprintf("_%s_", text) },
-			StrikethroughConverter:  func(text string, _ format.Context) string { return fmt.Sprintf("~%s~", text) },
-			MonospaceConverter:      func(text string, _ format.Context) string { return fmt.Sprintf("```%s```", text) },
-			MonospaceBlockConverter: func(text, language string, _ format.Context) string { return fmt.Sprintf("```%s```", text) },
+			BoldConverter:          func(text string, _ format.Context) string { return fmt.Sprintf("*%s*", text) },
+			ItalicConverter:        func(text string, _ format.Context) string { return fmt.Sprintf("_%s_", text) },
+			StrikethroughConverter: func(text string, _ format.Context) string { return fmt.Sprintf("~%s~", text) },
+			MonospaceConverter: func(text string, _ format.Context) string {
+				return fmt.Sprintf(
+					"```%s```", text,
+				)
+			},
+			MonospaceBlockConverter: func(text, language string, _ format.Context) string {
+				return fmt.Sprintf(
+					"```%s```", text,
+				)
+			},
 		},
 		waReplString: map[*regexp.Regexp]string{
 			italicRegex:        "$1<em>$2</em>$3",
@@ -120,10 +128,12 @@ func (formatter *Formatter) ParseWhatsApp(roomID id.RoomID, content *event.Messa
 		output = regex.ReplaceAllStringFunc(output, replacer)
 	}
 	if allowInlineURL {
-		output = inlineURLRegex.ReplaceAllStringFunc(output, func(s string) string {
-			groups := inlineURLRegex.FindStringSubmatch(s)
-			return fmt.Sprintf(`<a href="%s">%s</a>`, groups[2], groups[1])
-		})
+		output = inlineURLRegex.ReplaceAllStringFunc(
+			output, func(s string) string {
+				groups := inlineURLRegex.FindStringSubmatch(s)
+				return fmt.Sprintf(`<a href="%s">%s</a>`, groups[2], groups[1])
+			},
+		)
 	}
 	alreadyMentioned := make(map[id.UserID]struct{})
 	content.Mentions = &event.Mentions{}
@@ -136,7 +146,9 @@ func (formatter *Formatter) ParseWhatsApp(roomID id.RoomID, content *event.Messa
 		}
 		mxid, displayname := formatter.getMatrixInfoByJID(roomID, jid)
 		number := "@" + jid.User
-		output = strings.ReplaceAll(output, number, fmt.Sprintf(`<a href="https://matrix.to/#/%s">%s</a>`, mxid, displayname))
+		output = strings.ReplaceAll(
+			output, number, fmt.Sprintf(`<a href="https://matrix.to/#/%s">%s</a>`, mxid, displayname),
+		)
 		content.Body = strings.ReplaceAll(content.Body, number, displayname)
 		if _, ok := alreadyMentioned[mxid]; !ok {
 			alreadyMentioned[mxid] = struct{}{}

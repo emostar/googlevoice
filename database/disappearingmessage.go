@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -104,8 +104,10 @@ func (msg *DisappearingMessage) Insert(txn dbutil.Execable) {
 		expireAt.Valid = true
 		expireAt.Int64 = msg.ExpireAt.UnixMilli()
 	}
-	_, err := txn.Exec(`INSERT INTO disappearing_message (room_id, event_id, expire_in, expire_at) VALUES ($1, $2, $3, $4)`,
-		msg.RoomID, msg.EventID, msg.ExpireIn.Milliseconds(), expireAt)
+	_, err := txn.Exec(
+		`INSERT INTO disappearing_message (room_id, event_id, expire_in, expire_at) VALUES ($1, $2, $3, $4)`,
+		msg.RoomID, msg.EventID, msg.ExpireIn.Milliseconds(), expireAt,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to insert %s/%s: %v", msg.RoomID, msg.EventID, err)
 	}
@@ -113,7 +115,10 @@ func (msg *DisappearingMessage) Insert(txn dbutil.Execable) {
 
 func (msg *DisappearingMessage) StartTimer() {
 	msg.ExpireAt = time.Now().Add(msg.ExpireIn * time.Second)
-	_, err := msg.db.Exec("UPDATE disappearing_message SET expire_at=$1 WHERE room_id=$2 AND event_id=$3", msg.ExpireAt.Unix(), msg.RoomID, msg.EventID)
+	_, err := msg.db.Exec(
+		"UPDATE disappearing_message SET expire_at=$1 WHERE room_id=$2 AND event_id=$3", msg.ExpireAt.Unix(),
+		msg.RoomID, msg.EventID,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to update %s/%s: %v", msg.RoomID, msg.EventID, err)
 	}

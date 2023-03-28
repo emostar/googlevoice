@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -127,8 +127,12 @@ func DoUpgrade(helper *up.Helper) {
 	legacyKeyShareAllow, ok := helper.Get(up.Bool, "bridge", "encryption", "key_sharing", "allow")
 	if ok {
 		helper.Set(up.Bool, legacyKeyShareAllow, "bridge", "encryption", "allow_key_sharing")
-		legacyKeyShareRequireCS, legacyOK1 := helper.Get(up.Bool, "bridge", "encryption", "key_sharing", "require_cross_signing")
-		legacyKeyShareRequireVerification, legacyOK2 := helper.Get(up.Bool, "bridge", "encryption", "key_sharing", "require_verification")
+		legacyKeyShareRequireCS, legacyOK1 := helper.Get(
+			up.Bool, "bridge", "encryption", "key_sharing", "require_cross_signing",
+		)
+		legacyKeyShareRequireVerification, legacyOK2 := helper.Get(
+			up.Bool, "bridge", "encryption", "key_sharing", "require_verification",
+		)
 		if legacyOK1 && legacyOK2 && legacyKeyShareRequireVerification == "false" && legacyKeyShareRequireCS == "false" {
 			helper.Set(up.Str, "unverified", "bridge", "encryption", "verification_levels", "share")
 		}

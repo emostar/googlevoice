@@ -3,5 +3,5 @@ contact_links:
     url: https://docs.mau.fi/bridges/general/troubleshooting.html
     about: Check this first if you're having problems setting up the bridge.
   - name: Support room
-    url: https://matrix.to/#/#whatsapp:maunium.net
+    url: https://matrix.to/#/#gvoice:maunium.net
     about: For setup issues not answered by the troubleshooting docs, ask in the Matrix room.

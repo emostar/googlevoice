@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -91,7 +91,7 @@ func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	return resp.AccessToken, nil
 }
 
-func (br *WABridge) newDoublePuppetClient(mxid id.UserID, accessToken string) (*mautrix.Client, error) {
+func (br *GVBride) newDoublePuppetClient(mxid id.UserID, accessToken string) (*mautrix.Client, error) {
 	_, homeserver, err := mxid.Parse()
 	if err != nil {
 		return nil, err
@@ -106,7 +106,9 @@ func (br *WABridge) newDoublePuppetClient(mxid id.UserID, accessToken string) (*
 				return nil, fmt.Errorf("failed to find homeserver URL for %s: %v", homeserver, err)
 			}
 			homeserverURL = resp.Homeserver.BaseURL
-			br.Log.Debugfln("Discovered URL %s for %s to enable double puppeting for %s", homeserverURL, homeserver, mxid)
+			br.Log.Debugfln(
+				"Discovered URL %s for %s to enable double puppeting for %s", homeserverURL, homeserver, mxid,
+			)
 		} else {
 			return nil, fmt.Errorf("double puppeting from %s is not allowed", homeserver)
 		}
@@ -152,7 +154,9 @@ func (puppet *Puppet) StartCustomMXID(reloginOnFail bool) error {
 	}
 	resp, err := intent.Whoami()
 	if err != nil {
-		if !reloginOnFail || (errors.Is(err, mautrix.MUnknownToken) && !puppet.tryRelogin(err, "initializing double puppeting")) {
+		if !reloginOnFail || (errors.Is(err, mautrix.MUnknownToken) && !puppet.tryRelogin(
+			err, "initializing double puppeting",
+		)) {
 			puppet.clearCustomMXID()
 			return err
 		}

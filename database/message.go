@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -168,7 +168,10 @@ func (msg *Message) IsFakeJID() bool {
 
 func (msg *Message) Scan(row dbutil.Scannable) *Message {
 	var ts int64
-	err := row.Scan(&msg.Chat.JID, &msg.Chat.Receiver, &msg.JID, &msg.MXID, &msg.Sender, &ts, &msg.Sent, &msg.Type, &msg.Error, &msg.BroadcastListJID)
+	err := row.Scan(
+		&msg.Chat.JID, &msg.Chat.Receiver, &msg.JID, &msg.MXID, &msg.Sender, &ts, &msg.Sent, &msg.Type, &msg.Error,
+		&msg.BroadcastListJID,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			msg.log.Errorln("Database scan failed:", err)
@@ -190,11 +193,14 @@ func (msg *Message) Insert(txn dbutil.Execable) {
 	if msg.Sender.IsEmpty() {
 		sender = ""
 	}
-	_, err := txn.Exec(`
+	_, err := txn.Exec(
+		`
 		INSERT INTO message
 			(chat_jid, chat_receiver, jid, mxid, sender, timestamp, sent, type, error, broadcast_list_jid)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, msg.Chat.JID, msg.Chat.Receiver, msg.JID, msg.MXID, sender, msg.Timestamp.Unix(), msg.Sent, msg.Type, msg.Error, msg.BroadcastListJID)
+	`, msg.Chat.JID, msg.Chat.Receiver, msg.JID, msg.MXID, sender, msg.Timestamp.Unix(), msg.Sent, msg.Type, msg.Error,
+		msg.BroadcastListJID,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to insert %s@%s: %v", msg.Chat, msg.JID, err)
 	}
@@ -203,7 +209,10 @@ func (msg *Message) Insert(txn dbutil.Execable) {
 func (msg *Message) MarkSent(ts time.Time) {
 	msg.Sent = true
 	msg.Timestamp = ts
-	_, err := msg.db.Exec("UPDATE message SET sent=true, timestamp=$1 WHERE chat_jid=$2 AND chat_receiver=$3 AND jid=$4", ts.Unix(), msg.Chat.JID, msg.Chat.Receiver, msg.JID)
+	_, err := msg.db.Exec(
+		"UPDATE message SET sent=true, timestamp=$1 WHERE chat_jid=$2 AND chat_receiver=$3 AND jid=$4", ts.Unix(),
+		msg.Chat.JID, msg.Chat.Receiver, msg.JID,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to update %s@%s: %v", msg.Chat, msg.JID, err)
 	}
@@ -216,15 +225,20 @@ func (msg *Message) UpdateMXID(txn dbutil.Execable, mxid id.EventID, newType Mes
 	msg.MXID = mxid
 	msg.Type = newType
 	msg.Error = newError
-	_, err := txn.Exec("UPDATE message SET mxid=$1, type=$2, error=$3 WHERE chat_jid=$4 AND chat_receiver=$5 AND jid=$6",
-		mxid, newType, newError, msg.Chat.JID, msg.Chat.Receiver, msg.JID)
+	_, err := txn.Exec(
+		"UPDATE message SET mxid=$1, type=$2, error=$3 WHERE chat_jid=$4 AND chat_receiver=$5 AND jid=$6",
+		mxid, newType, newError, msg.Chat.JID, msg.Chat.Receiver, msg.JID,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to update %s@%s: %v", msg.Chat, msg.JID, err)
 	}
 }
 
 func (msg *Message) Delete() {
-	_, err := msg.db.Exec("DELETE FROM message WHERE chat_jid=$1 AND chat_receiver=$2 AND jid=$3", msg.Chat.JID, msg.Chat.Receiver, msg.JID)
+	_, err := msg.db.Exec(
+		"DELETE FROM message WHERE chat_jid=$1 AND chat_receiver=$2 AND jid=$3", msg.Chat.JID, msg.Chat.Receiver,
+		msg.JID,
+	)
 	if err != nil {
 		msg.log.Warnfln("Failed to delete %s@%s: %v", msg.Chat, msg.JID, err)
 	}

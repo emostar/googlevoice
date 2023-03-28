@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -34,8 +34,8 @@ import (
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util/dbutil"
 
-	"maunium.net/go/mautrix-whatsapp/config"
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/config"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 // region User history sync handling
@@ -100,9 +100,14 @@ func (user *User) handleHistorySyncsLoop() {
 const EnqueueBackfillsDelay = 30 * time.Second
 
 func (user *User) enqueueAllBackfills() {
-	nMostRecent := user.bridge.DB.HistorySync.GetNMostRecentConversations(user.MXID, user.bridge.Config.Bridge.HistorySync.MaxInitialConversations)
+	nMostRecent := user.bridge.DB.HistorySync.GetNMostRecentConversations(
+		user.MXID, user.bridge.Config.Bridge.HistorySync.MaxInitialConversations,
+	)
 	if len(nMostRecent) > 0 {
-		user.log.Infofln("%v has passed since the last history sync blob, enqueueing backfills for %d chats", EnqueueBackfillsDelay, len(nMostRecent))
+		user.log.Infofln(
+			"%v has passed since the last history sync blob, enqueueing backfills for %d chats", EnqueueBackfillsDelay,
+			len(nMostRecent),
+		)
 		// Find the portals for all the conversations.
 		portals := []*Portal{}
 		for _, conv := range nMostRecent {
@@ -221,7 +226,9 @@ func (user *User) backfillInChunks(req *database.Backfill, conv *database.Histor
 		shouldMarkAsRead = !isUnread || isTooOld
 		shouldAtomicallyMarkAsRead = shouldMarkAsRead && user.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
 	}
-	allMsgs := user.bridge.DB.HistorySync.GetMessagesBetween(user.MXID, conv.ConversationID, req.TimeStart, timeEnd, req.MaxTotalEvents)
+	allMsgs := user.bridge.DB.HistorySync.GetMessagesBetween(
+		user.MXID, conv.ConversationID, req.TimeStart, timeEnd, req.MaxTotalEvents,
+	)
 
 	sendDisappearedNotice := false
 	// If expired messages are on, and a notice has not been sent to this chat
@@ -252,11 +259,16 @@ func (user *User) backfillInChunks(req *database.Backfill, conv *database.Histor
 	portal.updateBackfillStatus(backfillState)
 
 	if sendDisappearedNotice {
-		user.log.Debugfln("Sending notice to %s that there are disappeared messages ending at %v", portal.Key.JID, conv.LastMessageTimestamp)
-		resp, err := portal.sendMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
-			MsgType: event.MsgNotice,
-			Body:    portal.formatDisappearingMessageNotice(),
-		}, nil, conv.LastMessageTimestamp.UnixMilli())
+		user.log.Debugfln(
+			"Sending notice to %s that there are disappeared messages ending at %v", portal.Key.JID,
+			conv.LastMessageTimestamp,
+		)
+		resp, err := portal.sendMessage(
+			portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
+				MsgType: event.MsgNotice,
+				Body:    portal.formatDisappearingMessageNotice(),
+			}, nil, conv.LastMessageTimestamp.UnixMilli(),
+		)
 
 		if err != nil {
 			portal.log.Errorln("Error sending disappearing messages notice event")
@@ -275,7 +287,10 @@ func (user *User) backfillInChunks(req *database.Backfill, conv *database.Histor
 		return
 	}
 
-	user.log.Infofln("Backfilling %d messages in %s, %d messages at a time (queue ID: %d)", len(allMsgs), portal.Key.JID, req.MaxBatchEvents, req.QueueID)
+	user.log.Infofln(
+		"Backfilling %d messages in %s, %d messages at a time (queue ID: %d)", len(allMsgs), portal.Key.JID,
+		req.MaxBatchEvents, req.QueueID,
+	)
 	toBackfill := allMsgs[0:]
 	var insertionEventIds []id.EventID
 	for len(toBackfill) > 0 {
@@ -291,22 +306,31 @@ func (user *User) backfillInChunks(req *database.Backfill, conv *database.Histor
 		if len(msgs) > 0 {
 			time.Sleep(time.Duration(req.BatchDelay) * time.Second)
 			user.log.Debugfln("Backfilling %d messages in %s (queue ID: %d)", len(msgs), portal.Key.JID, req.QueueID)
-			resp := portal.backfill(user, msgs, req.BackfillType == database.BackfillForward, isLatestEvents, shouldAtomicallyMarkAsRead, forwardPrevID)
+			resp := portal.backfill(
+				user, msgs, req.BackfillType == database.BackfillForward, isLatestEvents, shouldAtomicallyMarkAsRead,
+				forwardPrevID,
+			)
 			if resp != nil && (resp.BaseInsertionEventID != "" || !isLatestEvents) {
 				insertionEventIds = append(insertionEventIds, resp.BaseInsertionEventID)
 			}
 		}
 	}
-	user.log.Debugfln("Finished backfilling %d messages in %s (queue ID: %d)", len(allMsgs), portal.Key.JID, req.QueueID)
+	user.log.Debugfln(
+		"Finished backfilling %d messages in %s (queue ID: %d)", len(allMsgs), portal.Key.JID, req.QueueID,
+	)
 	if len(insertionEventIds) > 0 {
 		portal.sendPostBackfillDummy(
 			time.Unix(int64(allMsgs[0].GetMessageTimestamp()), 0),
-			insertionEventIds[0])
+			insertionEventIds[0],
+		)
 	}
 	user.log.Debugfln("Deleting %d history sync messages after backfilling (queue ID: %d)", len(allMsgs), req.QueueID)
 	err := user.bridge.DB.HistorySync.DeleteMessages(user.MXID, conv.ConversationID, allMsgs)
 	if err != nil {
-		user.log.Warnfln("Failed to delete %d history sync messages after backfilling (queue ID: %d): %v", len(allMsgs), req.QueueID, err)
+		user.log.Warnfln(
+			"Failed to delete %d history sync messages after backfilling (queue ID: %d): %v", len(allMsgs), req.QueueID,
+			err,
+		)
 	}
 
 	if req.TimeStart == nil {
@@ -418,7 +442,8 @@ func (user *User) handleHistorySync(backfillQueue *BackfillQueue, evt *waProto.H
 			conv.GetEndOfHistoryTransferType(),
 			conv.EphemeralExpiration,
 			conv.GetMarkedAsUnread(),
-			conv.GetUnreadCount())
+			conv.GetUnreadCount(),
+		)
 		historySyncConversation.Upsert()
 		var minTime, maxTime time.Time
 		var minTimeIndex, maxTimeIndex int
@@ -457,7 +482,9 @@ func (user *User) handleHistorySync(backfillQueue *BackfillQueue, evt *waProto.H
 				continue
 			}
 
-			message, err := user.bridge.DB.HistorySync.NewMessageWithValues(user.MXID, conv.GetId(), msgEvt.Info.ID, rawMsg)
+			message, err := user.bridge.DB.HistorySync.NewMessageWithValues(
+				user.MXID, conv.GetId(), msgEvt.Info.ID, rawMsg,
+			)
 			if err != nil {
 				log.Error().Err(err).
 					Int("msg_index", i).
@@ -510,7 +537,9 @@ func getConversationTimestamp(conv *waProto.Conversation) uint64 {
 func (user *User) EnqueueImmediateBackfills(portals []*Portal) {
 	for priority, portal := range portals {
 		maxMessages := user.bridge.Config.Bridge.HistorySync.Immediate.MaxEvents
-		initialBackfill := user.bridge.DB.Backfill.NewWithValues(user.MXID, database.BackfillImmediate, priority, &portal.Key, nil, maxMessages, maxMessages, 0)
+		initialBackfill := user.bridge.DB.Backfill.NewWithValues(
+			user.MXID, database.BackfillImmediate, priority, &portal.Key, nil, maxMessages, maxMessages, 0,
+		)
 		initialBackfill.Insert()
 	}
 }
@@ -525,7 +554,9 @@ func (user *User) EnqueueDeferredBackfills(portals []*Portal) {
 				startDate = &startDaysAgo
 			}
 			backfillMessages := user.bridge.DB.Backfill.NewWithValues(
-				user.MXID, database.BackfillDeferred, stageIdx*numPortals+portalIdx, &portal.Key, startDate, backfillStage.MaxBatchEvents, -1, backfillStage.BatchDelay)
+				user.MXID, database.BackfillDeferred, stageIdx*numPortals+portalIdx, &portal.Key, startDate,
+				backfillStage.MaxBatchEvents, -1, backfillStage.BatchDelay,
+			)
 			backfillMessages.Insert()
 		}
 	}
@@ -538,7 +569,8 @@ func (user *User) EnqueueForwardBackfills(portals []*Portal) {
 			continue
 		}
 		backfill := user.bridge.DB.Backfill.NewWithValues(
-			user.MXID, database.BackfillForward, priority, &portal.Key, &lastMsg.Timestamp, -1, -1, 0)
+			user.MXID, database.BackfillForward, priority, &portal.Key, &lastMsg.Timestamp, -1, -1, 0,
+		)
 		backfill.Insert()
 	}
 }
@@ -573,7 +605,9 @@ func (portal *Portal) backfill(source *User, messages []*waProto.WebMessageInfo,
 			req.PrevEventID = portal.FirstEventID
 			req.BatchID = portal.NextBatchID
 		} else {
-			portal.log.Warnfln("Can't backfill %d messages through %s to chat: first event ID not known", len(messages), source.MXID)
+			portal.log.Warnfln(
+				"Can't backfill %d messages through %s to chat: first event ID not known", len(messages), source.MXID,
+			)
 			return nil
 		}
 	} else {
@@ -603,23 +637,28 @@ func (portal *Portal) backfill(source *User, messages []*waProto.WebMessageInfo,
 		}
 		inviteContent := content
 		inviteContent.Membership = event.MembershipInvite
-		req.StateEventsAtStart = append(req.StateEventsAtStart, &event.Event{
-			Type:      event.StateMember,
-			Sender:    portal.MainIntent().UserID,
-			StateKey:  &mxid,
-			Timestamp: beforeFirstMessageTimestampMillis,
-			Content:   event.Content{Parsed: &inviteContent},
-		}, &event.Event{
-			Type:      event.StateMember,
-			Sender:    puppet.MXID,
-			StateKey:  &mxid,
-			Timestamp: beforeFirstMessageTimestampMillis,
-			Content:   event.Content{Parsed: &content},
-		})
+		req.StateEventsAtStart = append(
+			req.StateEventsAtStart, &event.Event{
+				Type:      event.StateMember,
+				Sender:    portal.MainIntent().UserID,
+				StateKey:  &mxid,
+				Timestamp: beforeFirstMessageTimestampMillis,
+				Content:   event.Content{Parsed: &inviteContent},
+			}, &event.Event{
+				Type:      event.StateMember,
+				Sender:    puppet.MXID,
+				StateKey:  &mxid,
+				Timestamp: beforeFirstMessageTimestampMillis,
+				Content:   event.Content{Parsed: &content},
+			},
+		)
 		addedMembers[puppet.MXID] = struct{}{}
 	}
 
-	portal.log.Infofln("Processing history sync with %d messages (forward: %t, latest: %t, prev: %s, batch: %s)", len(messages), isForward, isLatest, req.PrevEventID, req.BatchID)
+	portal.log.Infofln(
+		"Processing history sync with %d messages (forward: %t, latest: %t, prev: %s, batch: %s)", len(messages),
+		isForward, isLatest, req.PrevEventID, req.BatchID,
+	)
 	// The messages are ordered newest to oldest, so iterate them in reverse order.
 	for i := len(messages) - 1; i >= 0; i-- {
 		webMsg := messages[i]
@@ -640,9 +679,14 @@ func (portal *Portal) backfill(source *User, messages []*waProto.WebMessageInfo,
 			if !existingContact.Found || existingContact.PushName == "" {
 				changed, _, err := source.Client.Store.Contacts.PutPushName(msgEvt.Info.Sender, webMsg.GetPushName())
 				if err != nil {
-					source.log.Errorfln("Failed to save push name of %s from historical message in device store: %v", msgEvt.Info.Sender, err)
+					source.log.Errorfln(
+						"Failed to save push name of %s from historical message in device store: %v",
+						msgEvt.Info.Sender, err,
+					)
 				} else if changed {
-					source.log.Debugfln("Got push name %s for %s from historical message", webMsg.GetPushName(), msgEvt.Info.Sender)
+					source.log.Debugfln(
+						"Got push name %s for %s from historical message", webMsg.GetPushName(), msgEvt.Info.Sender,
+					)
 				}
 			}
 		}
@@ -727,7 +771,9 @@ func (portal *Portal) requestMediaRetries(source *User, eventIDs []id.EventID, i
 					portal.log.Debugfln("Sent post-backfill media retry request for %s", info.ID)
 				}
 			case config.MediaRequestMethodLocalTime:
-				req := portal.bridge.DB.MediaBackfillRequest.NewMediaBackfillRequestWithValues(source.MXID, &portal.Key, eventIDs[i], info.MediaKey)
+				req := portal.bridge.DB.MediaBackfillRequest.NewMediaBackfillRequestWithValues(
+					source.MXID, &portal.Key, eventIDs[i], info.MediaKey,
+				)
 				req.Upsert()
 			}
 		}
@@ -738,7 +784,9 @@ func (portal *Portal) appendBatchEvents(source *User, converted *ConvertedMessag
 	if portal.bridge.Config.Bridge.CaptionInMessage {
 		converted.MergeCaption()
 	}
-	mainEvt, err := portal.wrapBatchEvent(info, converted.Intent, converted.Type, converted.Content, converted.Extra, "")
+	mainEvt, err := portal.wrapBatchEvent(
+		info, converted.Intent, converted.Type, converted.Content, converted.Extra, "",
+	)
 	if err != nil {
 		return err
 	}
@@ -755,7 +803,9 @@ func (portal *Portal) appendBatchEvents(source *User, converted *ConvertedMessag
 		ExpiresIn:       converted.ExpiresIn,
 	}
 	if converted.Caption != nil {
-		captionEvt, err := portal.wrapBatchEvent(info, converted.Intent, converted.Type, converted.Caption, nil, "caption")
+		captionEvt, err := portal.wrapBatchEvent(
+			info, converted.Intent, converted.Type, converted.Caption, nil, "caption",
+		)
 		if err != nil {
 			return err
 		}
@@ -767,7 +817,9 @@ func (portal *Portal) appendBatchEvents(source *User, converted *ConvertedMessag
 	}
 	if converted.MultiEvent != nil {
 		for i, subEvtContent := range converted.MultiEvent {
-			subEvt, err := portal.wrapBatchEvent(info, converted.Intent, converted.Type, subEvtContent, nil, fmt.Sprintf("multi-%d", i))
+			subEvt, err := portal.wrapBatchEvent(
+				info, converted.Intent, converted.Type, subEvtContent, nil, fmt.Sprintf("multi-%d", i),
+			)
 			if err != nil {
 				return err
 			}
@@ -781,11 +833,13 @@ func (portal *Portal) appendBatchEvents(source *User, converted *ConvertedMessag
 			reactionEvent, reactionInfo := portal.wrapBatchReaction(source, reaction, mainEvt.ID, info.Timestamp)
 			if reactionEvent != nil {
 				*eventsArray = append(*eventsArray, reactionEvent)
-				*infoArray = append(*infoArray, &wrappedInfo{
-					MessageInfo:    reactionInfo,
-					ReactionTarget: info.ID,
-					Type:           database.MsgReaction,
-				})
+				*infoArray = append(
+					*infoArray, &wrappedInfo{
+						MessageInfo:    reactionInfo,
+						ReactionTarget: info.ID,
+						Type:           database.MsgReaction,
+					},
+				)
 			}
 		}
 	}
@@ -885,10 +939,12 @@ func (portal *Portal) finishBatch(txn dbutil.Transaction, eventIDs []id.EventID,
 }
 
 func (portal *Portal) sendPostBackfillDummy(lastTimestamp time.Time, insertionEventId id.EventID) {
-	resp, err := portal.MainIntent().SendMessageEvent(portal.MXID, HistorySyncMarker, map[string]interface{}{
-		"org.matrix.msc2716.marker.insertion": insertionEventId,
-		//"m.marker.insertion":                  insertionEventId,
-	})
+	resp, err := portal.MainIntent().SendMessageEvent(
+		portal.MXID, HistorySyncMarker, map[string]interface{}{
+			"org.matrix.msc2716.marker.insertion": insertionEventId,
+			// "m.marker.insertion":                  insertionEventId,
+		},
+	)
 	if err != nil {
 		portal.log.Errorln("Error sending post-backfill dummy event:", err)
 		return
@@ -909,10 +965,12 @@ func (portal *Portal) updateBackfillStatus(backfillState *database.BackfillState
 		backfillStatus = "complete"
 	}
 
-	_, err := portal.MainIntent().SendStateEvent(portal.MXID, BackfillStatusEvent, "", map[string]interface{}{
-		"status":          backfillStatus,
-		"first_timestamp": backfillState.FirstExpectedTimestamp * 1000,
-	})
+	_, err := portal.MainIntent().SendStateEvent(
+		portal.MXID, BackfillStatusEvent, "", map[string]interface{}{
+			"status":          backfillStatus,
+			"first_timestamp": backfillState.FirstExpectedTimestamp * 1000,
+		},
+	)
 	if err != nil {
 		portal.log.Errorln("Error sending backfill status event:", err)
 	}

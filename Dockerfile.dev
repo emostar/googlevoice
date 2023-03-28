@@ -4,10 +4,10 @@ RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev bash jq yq
 
 COPY . /build
 WORKDIR /build
-RUN go build -o /whatsapp
+RUN go build -o /gvoice
 
 # Setup development stack using gow
 RUN go install github.com/mitranim/gow@latest
-RUN echo 'gow run /build $@' > /usr/bin/mautrix-whatsapp \
-    && chmod +x /usr/bin/mautrix-whatsapp
+RUN echo 'gow run /build $@' > /usr/bin/mautrix-gvoice \
+    && chmod +x /usr/bin/mautrix-gvoice
 VOLUME /data

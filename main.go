@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -41,8 +41,8 @@ import (
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util/configupgrade"
 
-	"maunium.net/go/mautrix-whatsapp/config"
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/config"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 // Information to find out exactly which commit the bridge was built from.
@@ -56,15 +56,15 @@ var (
 //go:embed example-config.yaml
 var ExampleConfig string
 
-type WABridge struct {
+type GVBride struct {
 	bridge.Bridge
 	Config       *config.Config
 	DB           *database.Database
 	Provisioning *ProvisioningAPI
 	Formatter    *Formatter
 	Metrics      *MetricsHandler
-	WAContainer  *sqlstore.Container
-	WAVersion    string
+	GVContainer  *sqlstore.Container
+	GVVersion    string
 
 	usersByMXID         map[id.UserID]*User
 	usersByUsername     map[string]*User
@@ -81,7 +81,7 @@ type WABridge struct {
 	puppetsLock         sync.Mutex
 }
 
-func (br *WABridge) Init() {
+func (br *GVBride) Init() {
 	br.CommandProcessor = commands.NewProcessor(&br.Bridge)
 	br.RegisterCommands()
 
@@ -102,8 +102,10 @@ func (br *WABridge) Init() {
 	}
 
 	br.DB = database.New(br.Bridge.DB, br.Log.Sub("Database"))
-	br.WAContainer = sqlstore.NewWithDB(br.DB.RawDB, br.DB.Dialect.String(), &waLogger{br.Log.Sub("Database").Sub("WhatsApp")})
-	br.WAContainer.DatabaseErrorHandler = br.DB.HandleSignalStoreError
+	br.GVContainer = sqlstore.NewWithDB(
+		br.DB.RawDB, br.DB.Dialect.String(), &waLogger{br.Log.Sub("Database").Sub("GVoice")},
+	)
+	br.GVContainer.DatabaseErrorHandler = br.DB.HandleSignalStoreError
 
 	ss := br.Config.Bridge.Provisioning.SharedSecret
 	if len(ss) > 0 && ss != "disable" {
@@ -114,8 +116,8 @@ func (br *WABridge) Init() {
 	br.Metrics = NewMetricsHandler(br.Config.Metrics.Listen, br.Log.Sub("Metrics"), br.DB)
 	br.MatrixHandler.TrackEventDuration = br.Metrics.TrackMatrixEvent
 
-	store.BaseClientPayload.UserAgent.OsVersion = proto.String(br.WAVersion)
-	store.BaseClientPayload.UserAgent.OsBuildNumber = proto.String(br.WAVersion)
+	store.BaseClientPayload.UserAgent.OsVersion = proto.String(br.GVVersion)
+	store.BaseClientPayload.UserAgent.OsBuildNumber = proto.String(br.GVVersion)
 	store.DeviceProps.Os = proto.String(br.Config.WhatsApp.OSName)
 	store.DeviceProps.RequireFullSync = proto.Bool(br.Config.Bridge.HistorySync.RequestFullSync)
 	if fsc := br.Config.Bridge.HistorySync.FullSyncConfig; fsc.DaysLimit > 0 && fsc.SizeLimit > 0 && fsc.StorageQuota > 0 {
@@ -125,7 +127,7 @@ func (br *WABridge) Init() {
 			StorageQuotaMb:      proto.Uint32(fsc.StorageQuota),
 		}
 	}
-	versionParts := strings.Split(br.WAVersion, ".")
+	versionParts := strings.Split(br.GVVersion, ".")
 	if len(versionParts) > 2 {
 		primary, _ := strconv.Atoi(versionParts[0])
 		secondary, _ := strconv.Atoi(versionParts[1])
@@ -140,8 +142,8 @@ func (br *WABridge) Init() {
 	}
 }
 
-func (br *WABridge) Start() {
-	err := br.WAContainer.Upgrade()
+func (br *GVBride) Start() {
+	err := br.GVContainer.Upgrade()
 	if err != nil {
 		br.Log.Fatalln("Failed to upgrade whatsmeow database: %v", err)
 		os.Exit(15)
@@ -159,7 +161,7 @@ func (br *WABridge) Start() {
 	go br.Loop()
 }
 
-func (br *WABridge) CheckWhatsAppUpdate() {
+func (br *GVBride) CheckWhatsAppUpdate() {
 	br.Log.Debugfln("Checking for WhatsApp web update")
 	resp, err := whatsmeow.CheckUpdate(http.DefaultClient)
 	if err != nil {
@@ -170,18 +172,27 @@ func (br *WABridge) CheckWhatsAppUpdate() {
 		br.Log.Debugfln("Bridge is using latest WhatsApp web protocol")
 	} else if store.GetWAVersion().LessThan(resp.ParsedVersion) {
 		if resp.IsBelowHard || resp.IsBroken {
-			br.Log.Warnfln("Bridge is using outdated WhatsApp web protocol and probably doesn't work anymore (%s, latest is %s)", store.GetWAVersion(), resp.ParsedVersion)
+			br.Log.Warnfln(
+				"Bridge is using outdated WhatsApp web protocol and probably doesn't work anymore (%s, latest is %s)",
+				store.GetWAVersion(), resp.ParsedVersion,
+			)
 		} else if resp.IsBelowSoft {
-			br.Log.Infofln("Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(), resp.ParsedVersion)
+			br.Log.Infofln(
+				"Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(),
+				resp.ParsedVersion,
+			)
 		} else {
-			br.Log.Debugfln("Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(), resp.ParsedVersion)
+			br.Log.Debugfln(
+				"Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(),
+				resp.ParsedVersion,
+			)
 		}
 	} else {
 		br.Log.Debugfln("Bridge is using newer than latest WhatsApp web protocol")
 	}
 }
 
-func (br *WABridge) Loop() {
+func (br *GVBride) Loop() {
 	for {
 		br.SleepAndDeleteUpcoming()
 		time.Sleep(1 * time.Hour)
@@ -189,7 +200,7 @@ func (br *WABridge) Loop() {
 	}
 }
 
-func (br *WABridge) WarnUsersAboutDisconnection() {
+func (br *GVBride) WarnUsersAboutDisconnection() {
 	br.usersLock.Lock()
 	for _, user := range br.usersByUsername {
 		if user.IsConnected() && !user.PhoneRecentlySeen(true) {
@@ -199,7 +210,7 @@ func (br *WABridge) WarnUsersAboutDisconnection() {
 	br.usersLock.Unlock()
 }
 
-func (br *WABridge) StartUsers() {
+func (br *GVBride) StartUsers() {
 	br.Log.Debugln("Starting users")
 	foundAnySessions := false
 	for _, user := range br.GetAllUsers() {
@@ -223,7 +234,7 @@ func (br *WABridge) StartUsers() {
 	}
 }
 
-func (br *WABridge) Stop() {
+func (br *GVBride) Stop() {
 	br.Metrics.Stop()
 	for _, user := range br.usersByUsername {
 		if user.Client == nil {
@@ -235,11 +246,11 @@ func (br *WABridge) Stop() {
 	}
 }
 
-func (br *WABridge) GetExampleConfig() string {
+func (br *GVBride) GetExampleConfig() string {
 	return ExampleConfig
 }
 
-func (br *WABridge) GetConfigPtr() interface{} {
+func (br *GVBride) GetConfigPtr() interface{} {
 	br.Config = &config.Config{
 		BaseConfig: &br.Bridge.Config,
 	}
@@ -249,7 +260,7 @@ func (br *WABridge) GetConfigPtr() interface{} {
 
 const unstableFeatureBatchSending = "org.matrix.msc2716"
 
-func (br *WABridge) CheckFeatures(versions *mautrix.RespVersions) (string, bool) {
+func (br *GVBride) CheckFeatures(versions *mautrix.RespVersions) (string, bool) {
 	if br.Config.Bridge.HistorySync.Backfill {
 		supported, known := versions.UnstableFeatures[unstableFeatureBatchSending]
 		if !known {
@@ -262,7 +273,7 @@ func (br *WABridge) CheckFeatures(versions *mautrix.RespVersions) (string, bool)
 }
 
 func main() {
-	br := &WABridge{
+	br := &GVBride{
 		usersByMXID:         make(map[id.UserID]*User),
 		usersByUsername:     make(map[string]*User),
 		spaceRooms:          make(map[id.RoomID]*User),
@@ -273,13 +284,13 @@ func main() {
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
 	}
 	br.Bridge = bridge.Bridge{
-		Name:         "mautrix-whatsapp",
-		URL:          "https://github.com/mautrix/whatsapp",
-		Description:  "A Matrix-WhatsApp puppeting bridge.",
-		Version:      "0.8.3",
-		ProtocolName: "WhatsApp",
+		Name:         "mautrix-gvoice",
+		URL:          "https://github.com/emostar/mautrix-gvoice",
+		Description:  "A Matrix-GVoice puppeting bridge.",
+		Version:      "0.0.1",
+		ProtocolName: "GVoice",
 
-		CryptoPickleKey: "maunium.net/go/mautrix-whatsapp",
+		CryptoPickleKey: "github.com/emostar/mautrix-gvoice",
 
 		ConfigUpgrader: &configupgrade.StructUpgrader{
 			SimpleUpgrader: configupgrade.SimpleUpgrader(config.DoUpgrade),
@@ -290,7 +301,7 @@ func main() {
 		Child: br,
 	}
 	br.InitVersion(Tag, Commit, BuildTime)
-	br.WAVersion = strings.FieldsFunc(br.Version, func(r rune) bool { return r == '-' || r == '+' })[0]
+	br.GVVersion = strings.FieldsFunc(br.Version, func(r rune) bool { return r == '-' || r == '+' })[0]
 
 	br.Main()
 }

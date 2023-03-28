@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -42,17 +42,17 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 type WrappedCommandEvent struct {
 	*commands.Event
-	Bridge *WABridge
+	Bridge *GVBride
 	User   *User
 	Portal *Portal
 }
 
-func (br *WABridge) RegisterCommands() {
+func (br *GVBride) RegisterCommands() {
 	proc := br.CommandProcessor.(*commands.Processor)
 	proc.AddHandlers(
 		cmdSetRelay,
@@ -88,7 +88,7 @@ func wrapCommand(handler func(*WrappedCommandEvent)) func(*commands.Event) {
 		if ce.Portal != nil {
 			portal = ce.Portal.(*Portal)
 		}
-		br := ce.Bridge.Child.(*WABridge)
+		br := ce.Bridge.Child.(*GVBride)
 		handler(&WrappedCommandEvent{ce, br, user, portal})
 	}
 }
@@ -194,7 +194,9 @@ func fnResolveLink(ce *WrappedCommandEvent) {
 			return
 		}
 		ce.Reply("That invite link points at %s (`%s`)", group.Name, group.JID)
-	} else if strings.HasPrefix(ce.Args[0], whatsmeow.BusinessMessageLinkPrefix) || strings.HasPrefix(ce.Args[0], whatsmeow.BusinessMessageLinkDirectPrefix) {
+	} else if strings.HasPrefix(ce.Args[0], whatsmeow.BusinessMessageLinkPrefix) || strings.HasPrefix(
+		ce.Args[0], whatsmeow.BusinessMessageLinkDirectPrefix,
+	) {
 		target, err := ce.User.Client.ResolveBusinessMessageLink(ce.Args[0])
 		if err != nil {
 			ce.Reply("Failed to get business info: %v", err)
@@ -209,7 +211,9 @@ func fnResolveLink(ce *WrappedCommandEvent) {
 			message = fmt.Sprintf(" The following prefilled message is attached:\n\n%s", strings.Join(parts, "\n"))
 		}
 		ce.Reply("That link points at %s (+%s).%s", target.PushName, target.JID.User, message)
-	} else if strings.HasPrefix(ce.Args[0], whatsmeow.ContactQRLinkPrefix) || strings.HasPrefix(ce.Args[0], whatsmeow.ContactQRLinkDirectPrefix) {
+	} else if strings.HasPrefix(ce.Args[0], whatsmeow.ContactQRLinkPrefix) || strings.HasPrefix(
+		ce.Args[0], whatsmeow.ContactQRLinkDirectPrefix,
+	) {
 		target, err := ce.User.Client.ResolveContactQRLink(ce.Args[0])
 		if err != nil {
 			ce.Reply("Failed to get contact info: %v", err)
@@ -382,14 +386,18 @@ func fnCreate(ce *WrappedCommandEvent) {
 	}
 	// TODO check m.space.parent to create rooms directly in communities
 
-	ce.Log.Infofln("Creating group for %s with name %s and participants %+v", ce.RoomID, roomNameEvent.Name, participants)
-	resp, err := ce.User.Client.CreateGroup(whatsmeow.ReqCreateGroup{
-		Name:         roomNameEvent.Name,
-		Participants: participants,
-		GroupParent: types.GroupParent{
-			IsParent: createEvent.Type == event.RoomTypeSpace,
+	ce.Log.Infofln(
+		"Creating group for %s with name %s and participants %+v", ce.RoomID, roomNameEvent.Name, participants,
+	)
+	resp, err := ce.User.Client.CreateGroup(
+		whatsmeow.ReqCreateGroup{
+			Name:         roomNameEvent.Name,
+			Participants: participants,
+			GroupParent: types.GroupParent{
+				IsParent: createEvent.Type == event.RoomTypeSpace,
+			},
 		},
-	})
+	)
 	if err != nil {
 		ce.Reply("Failed to create group: %v", err)
 		return
@@ -406,7 +414,9 @@ func fnCreate(ce *WrappedCommandEvent) {
 	portal.IsParent = resp.IsParent
 	portal.Encrypted = encryptionEvent.Algorithm == id.AlgorithmMegolmV1
 	if !portal.Encrypted && ce.Bridge.Config.Bridge.Encryption.Default {
-		_, err = portal.MainIntent().SendStateEvent(portal.MXID, event.StateEncryption, "", portal.GetEncryptionEventContent())
+		_, err = portal.MainIntent().SendStateEvent(
+			portal.MXID, event.StateEncryption, "", portal.GetEncryptionEventContent(),
+		)
 		if err != nil {
 			portal.log.Warnln("Failed to enable encryption in room:", err)
 			if errors.Is(err, mautrix.MForbidden) {
@@ -669,9 +679,14 @@ func fnPing(ce *WrappedCommandEvent) {
 			ce.Reply("You're not logged into WhatsApp.")
 		}
 	} else if ce.User.Client == nil || !ce.User.Client.IsConnected() {
-		ce.Reply("You're logged in as +%s (device #%d), but you don't have a WhatsApp connection.", ce.User.JID.User, ce.User.JID.Device)
+		ce.Reply(
+			"You're logged in as +%s (device #%d), but you don't have a WhatsApp connection.", ce.User.JID.User,
+			ce.User.JID.Device,
+		)
 	} else {
-		ce.Reply("Logged in as +%s (device #%d), connection to WhatsApp OK (probably)", ce.User.JID.User, ce.User.JID.Device)
+		ce.Reply(
+			"Logged in as +%s (device #%d), connection to WhatsApp OK (probably)", ce.User.JID.User, ce.User.JID.Device,
+		)
 		if !ce.User.PhoneRecentlySeen(false) {
 			ce.Reply("Phone hasn't been seen in %s", formatDisconnectTime(time.Now().Sub(ce.User.PhoneLastSeen)))
 		}
@@ -752,10 +767,12 @@ func fnDeleteAllPortals(ce *WrappedCommandEvent) {
 
 	leave := func(portal *Portal) {
 		if len(portal.MXID) > 0 {
-			_, _ = portal.MainIntent().KickUser(portal.MXID, &mautrix.ReqKickUser{
-				Reason: "Deleting portal",
-				UserID: ce.User.MXID,
-			})
+			_, _ = portal.MainIntent().KickUser(
+				portal.MXID, &mautrix.ReqKickUser{
+					Reason: "Deleting portal",
+					UserID: ce.User.MXID,
+				},
+			)
 		}
 	}
 	customPuppet := ce.Bridge.GetPuppetByCustomMXID(ce.User.MXID)
@@ -817,7 +834,9 @@ func fnBackfill(ce *WrappedCommandEvent) {
 			return
 		}
 	}
-	backfillMessages := ce.Portal.bridge.DB.Backfill.NewWithValues(ce.User.MXID, database.BackfillImmediate, 0, &ce.Portal.Key, nil, batchSize, -1, batchDelay)
+	backfillMessages := ce.Portal.bridge.DB.Backfill.NewWithValues(
+		ce.User.MXID, database.BackfillImmediate, 0, &ce.Portal.Key, nil, batchSize, -1, batchDelay,
+	)
 	backfillMessages.Insert()
 
 	ce.User.BackfillQueue.ReCheck()
@@ -830,7 +849,7 @@ func matchesQuery(str string, query string) bool {
 	return strings.Contains(strings.ToLower(str), query)
 }
 
-func formatContacts(bridge *WABridge, input map[types.JID]types.ContactInfo, query string) (result []string) {
+func formatContacts(bridge *GVBride, input map[types.JID]types.ContactInfo, query string) (result []string) {
 	hasQuery := len(query) > 0
 	for jid, contact := range input {
 		if len(contact.FullName) == 0 {
@@ -842,8 +861,14 @@ func formatContacts(bridge *WABridge, input map[types.JID]types.ContactInfo, que
 			pushName = contact.FullName
 		}
 
-		if !hasQuery || matchesQuery(pushName, query) || matchesQuery(contact.FullName, query) || matchesQuery(jid.User, query) {
-			result = append(result, fmt.Sprintf("* %s / [%s](https://matrix.to/#/%s) - `+%s`", contact.FullName, pushName, puppet.MXID, jid.User))
+		if !hasQuery || matchesQuery(pushName, query) || matchesQuery(contact.FullName, query) || matchesQuery(
+			jid.User, query,
+		) {
+			result = append(
+				result, fmt.Sprintf(
+					"* %s / [%s](https://matrix.to/#/%s) - `+%s`", contact.FullName, pushName, puppet.MXID, jid.User,
+				),
+			)
 		}
 	}
 	sort.Sort(sort.StringSlice(result))
@@ -1077,7 +1102,10 @@ func fnPM(ce *WrappedCommandEvent) {
 	if err != nil {
 		ce.Reply("Failed to create portal room: %v", err)
 	} else if !justCreated {
-		ce.Reply("You already have a private chat portal with +%s at [%s](https://matrix.to/#/%s)", puppet.JID.User, puppet.Displayname, portal.MXID)
+		ce.Reply(
+			"You already have a private chat portal with +%s at [%s](https://matrix.to/#/%s)", puppet.JID.User,
+			puppet.Displayname, portal.MXID,
+		)
 	} else {
 		ce.Reply("Created portal room with +%s and invited you to it.", puppet.JID.User)
 	}
@@ -1119,7 +1147,10 @@ func fnSync(ce *WrappedCommandEvent) {
 		for _, name := range appstate.AllPatchNames {
 			err := ce.User.Client.FetchAppState(name, true, false)
 			if errors.Is(err, appstate.ErrKeyNotFound) {
-				ce.Reply("Key not found error syncing app state %s: %v\n\nKey requests are sent automatically, and the sync should happen in the background after your phone responds.", name, err)
+				ce.Reply(
+					"Key not found error syncing app state %s: %v\n\nKey requests are sent automatically, and the sync should happen in the background after your phone responds.",
+					name, err,
+				)
 				return
 			} else if err != nil {
 				ce.Reply("Error syncing app state %s: %v", name, err)

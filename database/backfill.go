@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan, Sumner Evans
 //
 // This program is free software: you can redistribute it and/or modify
@@ -116,7 +116,9 @@ func (bq *BackfillQuery) GetNext(userID id.UserID, backfillTypes []BackfillType)
 	for _, backfillType := range backfillTypes {
 		types = append(types, strconv.Itoa(int(backfillType)))
 	}
-	rows, err := bq.db.Query(fmt.Sprintf(getNextBackfillQuery, strings.Join(types, ",")), userID, time.Now().Add(-15*time.Minute))
+	rows, err := bq.db.Query(
+		fmt.Sprintf(getNextBackfillQuery, strings.Join(types, ",")), userID, time.Now().Add(-15*time.Minute),
+	)
 	if err != nil || rows == nil {
 		bq.log.Errorfln("Failed to query next backfill queue job: %v", err)
 		return
@@ -165,12 +167,14 @@ func (bq *BackfillQuery) DeleteAll(userID id.UserID) {
 func (bq *BackfillQuery) DeleteAllForPortal(userID id.UserID, portalKey PortalKey) {
 	bq.backfillQueryLock.Lock()
 	defer bq.backfillQueryLock.Unlock()
-	_, err := bq.db.Exec(`
+	_, err := bq.db.Exec(
+		`
 		DELETE FROM backfill_queue
 		WHERE user_mxid=$1
 			AND portal_jid=$2
 			AND portal_receiver=$3
-	`, userID, portalKey.JID, portalKey.Receiver)
+	`, userID, portalKey.JID, portalKey.Receiver,
+	)
 	if err != nil {
 		bq.log.Warnfln("Failed to delete backfill queue items for %s/%s: %v", userID, portalKey.JID, err)
 	}
@@ -195,14 +199,19 @@ type Backfill struct {
 }
 
 func (b *Backfill) String() string {
-	return fmt.Sprintf("Backfill{QueueID: %d, UserID: %s, BackfillType: %s, Priority: %d, Portal: %s, TimeStart: %s, MaxBatchEvents: %d, MaxTotalEvents: %d, BatchDelay: %d, DispatchTime: %s, CompletedAt: %s}",
-		b.QueueID, b.UserID, b.BackfillType, b.Priority, b.Portal, b.TimeStart, b.MaxBatchEvents, b.MaxTotalEvents, b.BatchDelay, b.CompletedAt, b.DispatchTime,
+	return fmt.Sprintf(
+		"Backfill{QueueID: %d, UserID: %s, BackfillType: %s, Priority: %d, Portal: %s, TimeStart: %s, MaxBatchEvents: %d, MaxTotalEvents: %d, BatchDelay: %d, DispatchTime: %s, CompletedAt: %s}",
+		b.QueueID, b.UserID, b.BackfillType, b.Priority, b.Portal, b.TimeStart, b.MaxBatchEvents, b.MaxTotalEvents,
+		b.BatchDelay, b.CompletedAt, b.DispatchTime,
 	)
 }
 
 func (b *Backfill) Scan(row dbutil.Scannable) *Backfill {
 	var maxTotalEvents, batchDelay sql.NullInt32
-	err := row.Scan(&b.QueueID, &b.UserID, &b.BackfillType, &b.Priority, &b.Portal.JID, &b.Portal.Receiver, &b.TimeStart, &b.MaxBatchEvents, &maxTotalEvents, &batchDelay)
+	err := row.Scan(
+		&b.QueueID, &b.UserID, &b.BackfillType, &b.Priority, &b.Portal.JID, &b.Portal.Receiver, &b.TimeStart,
+		&b.MaxBatchEvents, &maxTotalEvents, &batchDelay,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			b.log.Errorln("Database scan failed:", err)
@@ -218,12 +227,15 @@ func (b *Backfill) Insert() {
 	b.db.Backfill.backfillQueryLock.Lock()
 	defer b.db.Backfill.backfillQueryLock.Unlock()
 
-	rows, err := b.db.Query(`
+	rows, err := b.db.Query(
+		`
 		INSERT INTO backfill_queue
 			(user_mxid, type, priority, portal_jid, portal_receiver, time_start, max_batch_events, max_total_events, batch_delay, dispatch_time, completed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING queue_id
-	`, b.UserID, b.BackfillType, b.Priority, b.Portal.JID, b.Portal.Receiver, b.TimeStart, b.MaxBatchEvents, b.MaxTotalEvents, b.BatchDelay, b.DispatchTime, b.CompletedAt)
+	`, b.UserID, b.BackfillType, b.Priority, b.Portal.JID, b.Portal.Receiver, b.TimeStart, b.MaxBatchEvents,
+		b.MaxTotalEvents, b.BatchDelay, b.DispatchTime, b.CompletedAt,
+	)
 	defer rows.Close()
 	if err != nil || !rows.Next() {
 		b.log.Warnfln("Failed to insert %v/%s with priority %d: %v", b.BackfillType, b.Portal.JID, b.Priority, err)
@@ -295,7 +307,10 @@ type BackfillState struct {
 }
 
 func (b *BackfillState) Scan(row dbutil.Scannable) *BackfillState {
-	err := row.Scan(&b.UserID, &b.Portal.JID, &b.Portal.Receiver, &b.ProcessingBatch, &b.BackfillComplete, &b.FirstExpectedTimestamp)
+	err := row.Scan(
+		&b.UserID, &b.Portal.JID, &b.Portal.Receiver, &b.ProcessingBatch, &b.BackfillComplete,
+		&b.FirstExpectedTimestamp,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			b.log.Errorln("Database scan failed:", err)
@@ -306,7 +321,8 @@ func (b *BackfillState) Scan(row dbutil.Scannable) *BackfillState {
 }
 
 func (b *BackfillState) Upsert() {
-	_, err := b.db.Exec(`
+	_, err := b.db.Exec(
+		`
 		INSERT INTO backfill_state
 			(user_mxid, portal_jid, portal_receiver, processing_batch, backfill_complete, first_expected_ts)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -315,7 +331,8 @@ func (b *BackfillState) Upsert() {
 			processing_batch=EXCLUDED.processing_batch,
 			backfill_complete=EXCLUDED.backfill_complete,
 			first_expected_ts=EXCLUDED.first_expected_ts`,
-		b.UserID, b.Portal.JID, b.Portal.Receiver, b.ProcessingBatch, b.BackfillComplete, b.FirstExpectedTimestamp)
+		b.UserID, b.Portal.JID, b.Portal.Receiver, b.ProcessingBatch, b.BackfillComplete, b.FirstExpectedTimestamp,
+	)
 	if err != nil {
 		b.log.Warnfln("Failed to insert backfill state for %s: %v", b.Portal.JID, err)
 	}

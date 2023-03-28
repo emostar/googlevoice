@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -37,17 +37,19 @@ const (
 )
 
 func init() {
-	status.BridgeStateHumanErrors.Update(status.BridgeStateErrorMap{
-		WALoggedOut:        "You were logged out from another device. Relogin to continue using the bridge.",
-		WAMainDeviceGone:   "Your phone was logged out from WhatsApp. Relogin to continue using the bridge.",
-		WAUnknownLogout:    "You were logged out for an unknown reason. Relogin to continue using the bridge.",
-		WANotConnected:     "You're not connected to WhatsApp",
-		WAConnecting:       "Reconnecting to WhatsApp...",
-		WAKeepaliveTimeout: "The WhatsApp web servers are not responding. The bridge will try to reconnect.",
-		WAPhoneOffline:     "Your phone hasn't been seen in over 12 days. The bridge is currently connected, but will get disconnected if you don't open the app soon.",
-		WAConnectionFailed: "Connecting to the WhatsApp web servers failed.",
-		WADisconnected:     "Disconnected from WhatsApp. Trying to reconnect.",
-	})
+	status.BridgeStateHumanErrors.Update(
+		status.BridgeStateErrorMap{
+			WALoggedOut:        "You were logged out from another device. Relogin to continue using the bridge.",
+			WAMainDeviceGone:   "Your phone was logged out from WhatsApp. Relogin to continue using the bridge.",
+			WAUnknownLogout:    "You were logged out for an unknown reason. Relogin to continue using the bridge.",
+			WANotConnected:     "You're not connected to WhatsApp",
+			WAConnecting:       "Reconnecting to WhatsApp...",
+			WAKeepaliveTimeout: "The WhatsApp web servers are not responding. The bridge will try to reconnect.",
+			WAPhoneOffline:     "Your phone hasn't been seen in over 12 days. The bridge is currently connected, but will get disconnected if you don't open the app soon.",
+			WAConnectionFailed: "Connecting to the WhatsApp web servers failed.",
+			WADisconnected:     "Disconnected from WhatsApp. Trying to reconnect.",
+		},
+	)
 }
 
 func (user *User) GetRemoteID() string {

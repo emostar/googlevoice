@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,6 @@ package upgrades
 
 import (
 	"embed"
-	"errors"
 
 	"maunium.net/go/mautrix/util/dbutil"
 )
@@ -29,8 +28,8 @@ var Table dbutil.UpgradeTable
 var rawUpgrades embed.FS
 
 func init() {
-	Table.Register(-1, 35, "Unsupported version", false, func(tx dbutil.Execable, database *dbutil.Database) error {
-		return errors.New("please upgrade to mautrix-whatsapp v0.4.0 before upgrading to a newer version")
-	})
+	// Table.Register(-1, 35, "Unsupported version", false, func(tx dbutil.Execable, database *dbutil.Database) error {
+	// 	return errors.New("please upgrade to mautrix-gvoice v0.4.0 before upgrading to a newer version")
+	// })
 	Table.RegisterFS(rawUpgrades)
 }

@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -30,13 +30,13 @@ import (
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/id"
 
-	"maunium.net/go/mautrix-whatsapp/config"
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/config"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 var userIDRegex *regexp.Regexp
 
-func (br *WABridge) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
+func (br *GVBride) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
 	if userIDRegex == nil {
 		userIDRegex = br.Config.MakeUserIDRegex("([0-9]+)")
 	}
@@ -48,7 +48,7 @@ func (br *WABridge) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
 	return
 }
 
-func (br *WABridge) GetPuppetByMXID(mxid id.UserID) *Puppet {
+func (br *GVBride) GetPuppetByMXID(mxid id.UserID) *Puppet {
 	jid, ok := br.ParsePuppetMXID(mxid)
 	if !ok {
 		return nil
@@ -57,7 +57,7 @@ func (br *WABridge) GetPuppetByMXID(mxid id.UserID) *Puppet {
 	return br.GetPuppetByJID(jid)
 }
 
-func (br *WABridge) GetPuppetByJID(jid types.JID) *Puppet {
+func (br *GVBride) GetPuppetByJID(jid types.JID) *Puppet {
 	jid = jid.ToNonAD()
 	if jid.Server == types.LegacyUserServer {
 		jid.Server = types.DefaultUserServer
@@ -83,7 +83,7 @@ func (br *WABridge) GetPuppetByJID(jid types.JID) *Puppet {
 	return puppet
 }
 
-func (br *WABridge) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
+func (br *GVBride) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
 	br.puppetsLock.Lock()
 	defer br.puppetsLock.Unlock()
 	puppet, ok := br.puppetsByCustomMXID[mxid]
@@ -118,12 +118,12 @@ func (user *User) GetIGhost() bridge.Ghost {
 	return p
 }
 
-func (br *WABridge) IsGhost(id id.UserID) bool {
+func (br *GVBride) IsGhost(id id.UserID) bool {
 	_, ok := br.ParsePuppetMXID(id)
 	return ok
 }
 
-func (br *WABridge) GetIGhost(id id.UserID) bridge.Ghost {
+func (br *GVBride) GetIGhost(id id.UserID) bridge.Ghost {
 	p := br.GetPuppetByMXID(id)
 	if p == nil {
 		return nil
@@ -135,15 +135,15 @@ func (puppet *Puppet) GetMXID() id.UserID {
 	return puppet.MXID
 }
 
-func (br *WABridge) GetAllPuppetsWithCustomMXID() []*Puppet {
+func (br *GVBride) GetAllPuppetsWithCustomMXID() []*Puppet {
 	return br.dbPuppetsToPuppets(br.DB.Puppet.GetAllWithCustomMXID())
 }
 
-func (br *WABridge) GetAllPuppets() []*Puppet {
+func (br *GVBride) GetAllPuppets() []*Puppet {
 	return br.dbPuppetsToPuppets(br.DB.Puppet.GetAll())
 }
 
-func (br *WABridge) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
+func (br *GVBride) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
 	br.puppetsLock.Lock()
 	defer br.puppetsLock.Unlock()
 	output := make([]*Puppet, len(dbPuppets))
@@ -164,13 +164,14 @@ func (br *WABridge) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
 	return output
 }
 
-func (br *WABridge) FormatPuppetMXID(jid types.JID) id.UserID {
+func (br *GVBride) FormatPuppetMXID(jid types.JID) id.UserID {
 	return id.NewUserID(
 		br.Config.Bridge.FormatUsername(jid.User),
-		br.Config.Homeserver.Domain)
+		br.Config.Homeserver.Domain,
+	)
 }
 
-func (br *WABridge) NewPuppet(dbPuppet *database.Puppet) *Puppet {
+func (br *GVBride) NewPuppet(dbPuppet *database.Puppet) *Puppet {
 	return &Puppet{
 		Puppet: dbPuppet,
 		bridge: br,
@@ -183,7 +184,7 @@ func (br *WABridge) NewPuppet(dbPuppet *database.Puppet) *Puppet {
 type Puppet struct {
 	*database.Puppet
 
-	bridge *WABridge
+	bridge *GVBride
 	log    log.Logger
 
 	typingIn id.RoomID
@@ -223,7 +224,9 @@ func (puppet *Puppet) DefaultIntent() *appservice.IntentAPI {
 }
 
 func (puppet *Puppet) UpdateAvatar(source *User, forcePortalSync bool) bool {
-	changed := source.updateAvatar(puppet.JID, false, &puppet.Avatar, &puppet.AvatarURL, &puppet.AvatarSet, puppet.log, puppet.DefaultIntent())
+	changed := source.updateAvatar(
+		puppet.JID, false, &puppet.Avatar, &puppet.AvatarURL, &puppet.AvatarSet, puppet.log, puppet.DefaultIntent(),
+	)
 	if !changed || puppet.Avatar == "unauthorized" {
 		if forcePortalSync {
 			go puppet.updatePortalAvatar()
@@ -277,30 +280,34 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 }
 
 func (puppet *Puppet) updatePortalAvatar() {
-	puppet.updatePortalMeta(func(portal *Portal) {
-		if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && portal.AvatarSet {
-			return
-		}
-		portal.AvatarURL = puppet.AvatarURL
-		portal.Avatar = puppet.Avatar
-		portal.AvatarSet = false
-		defer portal.Update(nil)
-		if len(portal.MXID) > 0 {
-			_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, puppet.AvatarURL)
-			if err != nil {
-				portal.log.Warnln("Failed to set avatar:", err)
-			} else {
-				portal.AvatarSet = true
-				portal.UpdateBridgeInfo()
+	puppet.updatePortalMeta(
+		func(portal *Portal) {
+			if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && portal.AvatarSet {
+				return
 			}
-		}
-	})
+			portal.AvatarURL = puppet.AvatarURL
+			portal.Avatar = puppet.Avatar
+			portal.AvatarSet = false
+			defer portal.Update(nil)
+			if len(portal.MXID) > 0 {
+				_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, puppet.AvatarURL)
+				if err != nil {
+					portal.log.Warnln("Failed to set avatar:", err)
+				} else {
+					portal.AvatarSet = true
+					portal.UpdateBridgeInfo()
+				}
+			}
+		},
+	)
 }
 
 func (puppet *Puppet) updatePortalName() {
-	puppet.updatePortalMeta(func(portal *Portal) {
-		portal.UpdateName(puppet.Displayname, types.EmptyJID, true)
-	})
+	puppet.updatePortalMeta(
+		func(portal *Portal) {
+			portal.UpdateName(puppet.Displayname, types.EmptyJID, true)
+		},
+	)
 }
 
 func (puppet *Puppet) SyncContact(source *User, onlyIfNoName, shouldHavePushName bool, reason string) {
@@ -311,7 +318,9 @@ func (puppet *Puppet) SyncContact(source *User, onlyIfNoName, shouldHavePushName
 
 	contact, err := source.Client.Store.Contacts.GetContact(puppet.JID)
 	if err != nil {
-		puppet.log.Warnfln("Failed to get contact info through %s in SyncContact: %v (sync reason: %s)", source.MXID, reason)
+		puppet.log.Warnfln(
+			"Failed to get contact info through %s in SyncContact: %v (sync reason: %s)", source.MXID, reason,
+		)
 	} else if !contact.Found {
 		puppet.log.Warnfln("No contact info found through %s in SyncContact (sync reason: %s)", source.MXID, reason)
 	}

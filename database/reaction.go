@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -87,7 +87,10 @@ type Reaction struct {
 }
 
 func (reaction *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	err := row.Scan(&reaction.Chat.JID, &reaction.Chat.Receiver, &reaction.TargetJID, &reaction.Sender, &reaction.MXID, &reaction.JID)
+	err := row.Scan(
+		&reaction.Chat.JID, &reaction.Chat.Receiver, &reaction.TargetJID, &reaction.Sender, &reaction.MXID,
+		&reaction.JID,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			reaction.log.Errorln("Database scan failed:", err)
@@ -102,9 +105,14 @@ func (reaction *Reaction) Upsert(txn dbutil.Execable) {
 	if txn == nil {
 		txn = reaction.db
 	}
-	_, err := txn.Exec(upsertReactionQuery, reaction.Chat.JID, reaction.Chat.Receiver, reaction.TargetJID, reaction.Sender, reaction.MXID, reaction.JID)
+	_, err := txn.Exec(
+		upsertReactionQuery, reaction.Chat.JID, reaction.Chat.Receiver, reaction.TargetJID, reaction.Sender,
+		reaction.MXID, reaction.JID,
+	)
 	if err != nil {
-		reaction.log.Warnfln("Failed to upsert reaction to %s@%s by %s: %v", reaction.Chat, reaction.TargetJID, reaction.Sender, err)
+		reaction.log.Warnfln(
+			"Failed to upsert reaction to %s@%s by %s: %v", reaction.Chat, reaction.TargetJID, reaction.Sender, err,
+		)
 	}
 }
 
@@ -113,7 +121,10 @@ func (reaction *Reaction) GetTarget() *Message {
 }
 
 func (reaction *Reaction) Delete() {
-	_, err := reaction.db.Exec(deleteReactionQuery, reaction.Chat.JID, reaction.Chat.Receiver, reaction.TargetJID, reaction.Sender, reaction.MXID)
+	_, err := reaction.db.Exec(
+		deleteReactionQuery, reaction.Chat.JID, reaction.Chat.Receiver, reaction.TargetJID, reaction.Sender,
+		reaction.MXID,
+	)
 	if err != nil {
 		reaction.log.Warnfln("Failed to delete reaction %s: %v", reaction.MXID, err)
 	}

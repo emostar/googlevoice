@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan, Sumner Evans
 //
 // This program is free software: you can redistribute it and/or modify
@@ -45,11 +45,13 @@ func (sc *SegmentClient) trackSync(userID id.UserID, event string, properties ma
 	} else {
 		segmentUserID = userID.String()
 	}
-	err := json.NewEncoder(&buf).Encode(map[string]interface{}{
-		"userId":     segmentUserID,
-		"event":      event,
-		"properties": properties,
-	})
+	err := json.NewEncoder(&buf).Encode(
+		map[string]interface{}{
+			"userId":     segmentUserID,
+			"event":      event,
+			"properties": properties,
+		},
+	)
 	if err != nil {
 		return err
 	}

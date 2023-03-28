@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -78,7 +78,9 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, ""
 	case errors.Is(err, errMNoticeDisabled):
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, false, ""
-	case errors.Is(err, errMediaUnsupportedType), errors.Is(err, errPollMissingQuestion), errors.Is(err, errPollDuplicateOption):
+	case errors.Is(err, errMediaUnsupportedType), errors.Is(err, errPollMissingQuestion), errors.Is(
+		err, errPollDuplicateOption,
+	):
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, err.Error()
 	case errors.Is(err, errTimeoutBeforeHandling):
 		return event.MessageStatusTooOld, event.MessageStatusRetriable, true, true, "the message was too old when it reached the bridge, so it was not handled"
@@ -220,9 +222,11 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 		portal.bridge.SendMessageSuccessCheckpoint(evt, status.MsgStepRemote, ms.getRetryNum())
 		portal.sendStatusEvent(origEvtID, evt.ID, nil)
 		if prevNotice := ms.popNoticeID(); prevNotice != "" {
-			_, _ = portal.MainIntent().RedactEvent(portal.MXID, prevNotice, mautrix.ReqRedact{
-				Reason: "error resolved",
-			})
+			_, _ = portal.MainIntent().RedactEvent(
+				portal.MXID, prevNotice, mautrix.ReqRedact{
+					Reason: "error resolved",
+				},
+			)
 		}
 	}
 	if ms != nil {
@@ -281,9 +285,16 @@ func (mt *messageTimings) String() string {
 		if mt.whatsmeow.Retry > 0 {
 			format += ", retry: %[9]s"
 		}
-		whatsmeowTimings = fmt.Sprintf(format, mt.whatsmeow.Queue, mt.whatsmeow.Marshal, mt.whatsmeow.GroupEncrypt, mt.whatsmeow.GetParticipants, mt.whatsmeow.GetDevices, mt.whatsmeow.PeerEncrypt, mt.whatsmeow.Send, mt.whatsmeow.Resp, mt.whatsmeow.Retry)
+		whatsmeowTimings = fmt.Sprintf(
+			format, mt.whatsmeow.Queue, mt.whatsmeow.Marshal, mt.whatsmeow.GroupEncrypt, mt.whatsmeow.GetParticipants,
+			mt.whatsmeow.GetDevices, mt.whatsmeow.PeerEncrypt, mt.whatsmeow.Send, mt.whatsmeow.Resp, mt.whatsmeow.Retry,
+		)
 	}
-	return fmt.Sprintf("BRIDGE: receive: %s, decrypt: %s, queue: %s, total hs->portal: %s, implicit rr: %s -- PORTAL: preprocess: %s, convert: %s, total send: %s -- WHATSMEOW: %s", mt.initReceive, mt.decrypt, mt.implicitRR, mt.portalQueue, mt.totalReceive, mt.preproc, mt.convert, mt.totalSend, whatsmeowTimings)
+	return fmt.Sprintf(
+		"BRIDGE: receive: %s, decrypt: %s, queue: %s, total hs->portal: %s, implicit rr: %s -- PORTAL: preprocess: %s, convert: %s, total send: %s -- WHATSMEOW: %s",
+		mt.initReceive, mt.decrypt, mt.implicitRR, mt.portalQueue, mt.totalReceive, mt.preproc, mt.convert,
+		mt.totalSend, whatsmeowTimings,
+	)
 }
 
 type metricSender struct {

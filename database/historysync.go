@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan, Sumner Evans
 //
 // This program is free software: you can redistribute it and/or modify
@@ -113,7 +113,8 @@ const (
 )
 
 func (hsc *HistorySyncConversation) Upsert() {
-	_, err := hsc.db.Exec(`
+	_, err := hsc.db.Exec(
+		`
 		INSERT INTO history_sync_conversation (user_mxid, conversation_id, portal_jid, portal_receiver, last_message_timestamp, archived, pinned, mute_end_time, disappearing_mode, end_of_history_transfer_type, ephemeral_expiration, marked_as_unread, unread_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (user_mxid, conversation_id)
@@ -136,7 +137,8 @@ func (hsc *HistorySyncConversation) Upsert() {
 		hsc.EndOfHistoryTransferType,
 		hsc.EphemeralExpiration,
 		hsc.MarkedAsUnread,
-		hsc.UnreadCount)
+		hsc.UnreadCount,
+	)
 	if err != nil {
 		hsc.log.Warnfln("Failed to insert history sync conversation %s/%s: %v", hsc.UserID, hsc.ConversationID, err)
 	}
@@ -156,7 +158,8 @@ func (hsc *HistorySyncConversation) Scan(row dbutil.Scannable) *HistorySyncConve
 		&hsc.EndOfHistoryTransferType,
 		&hsc.EphemeralExpiration,
 		&hsc.MarkedAsUnread,
-		&hsc.UnreadCount)
+		&hsc.UnreadCount,
+	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			hsc.log.Errorln("Database scan failed:", err)
@@ -244,11 +247,13 @@ func (hsq *HistorySyncQuery) NewMessageWithValues(userID id.UserID, conversation
 }
 
 func (hsm *HistorySyncMessage) Insert() error {
-	_, err := hsm.db.Exec(`
+	_, err := hsm.db.Exec(
+		`
 		INSERT INTO history_sync_message (user_mxid, conversation_id, message_id, timestamp, data, inserted_time)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_mxid, conversation_id, message_id) DO NOTHING
-	`, hsm.UserID, hsm.ConversationID, hsm.MessageID, hsm.Timestamp, hsm.Data, time.Now())
+	`, hsm.UserID, hsm.ConversationID, hsm.MessageID, hsm.Timestamp, hsm.Data, time.Now(),
+	)
 	return err
 }
 
@@ -315,10 +320,12 @@ func (hsq *HistorySyncQuery) DeleteAllMessages(userID id.UserID) {
 }
 
 func (hsq *HistorySyncQuery) DeleteAllMessagesForPortal(userID id.UserID, portalKey PortalKey) {
-	_, err := hsq.db.Exec(`
+	_, err := hsq.db.Exec(
+		`
 		DELETE FROM history_sync_message
 		WHERE user_mxid=$1 AND conversation_id=$2
-	`, userID, portalKey.JID)
+	`, userID, portalKey.JID,
+	)
 	if err != nil {
 		hsq.log.Warnfln("Failed to delete historical messages for %s/%s: %v", userID, portalKey.JID, err)
 	}

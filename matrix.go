@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2022 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -27,10 +27,10 @@ import (
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
-func (br *WABridge) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User, brGhost bridge.Ghost) {
+func (br *GVBride) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User, brGhost bridge.Ghost) {
 	inviter := brInviter.(*User)
 	puppet := brGhost.(*Puppet)
 	key := database.NewPortalKey(puppet.JID, inviter.JID)
@@ -43,19 +43,27 @@ func (br *WABridge) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User,
 
 	ok := portal.ensureUserInvited(inviter)
 	if !ok {
-		br.Log.Warnfln("Failed to invite %s to existing private chat portal %s with %s. Redirecting portal to new room...", inviter.MXID, portal.MXID, puppet.JID)
+		br.Log.Warnfln(
+			"Failed to invite %s to existing private chat portal %s with %s. Redirecting portal to new room...",
+			inviter.MXID, portal.MXID, puppet.JID,
+		)
 		br.createPrivatePortalFromInvite(roomID, inviter, puppet, portal)
 		return
 	}
 	intent := puppet.DefaultIntent()
-	errorMessage := fmt.Sprintf("You already have a private chat portal with me at [%[1]s](https://matrix.to/#/%[1]s)", portal.MXID)
+	errorMessage := fmt.Sprintf(
+		"You already have a private chat portal with me at [%[1]s](https://matrix.to/#/%[1]s)", portal.MXID,
+	)
 	errorContent := format.RenderMarkdown(errorMessage, true, false)
 	_, _ = intent.SendMessageEvent(roomID, event.EventMessage, errorContent)
-	br.Log.Debugfln("Leaving private chat room %s as %s after accepting invite from %s as we already have chat with the user", roomID, puppet.MXID, inviter.MXID)
+	br.Log.Debugfln(
+		"Leaving private chat room %s as %s after accepting invite from %s as we already have chat with the user",
+		roomID, puppet.MXID, inviter.MXID,
+	)
 	_, _ = intent.LeaveRoom(roomID)
 }
 
-func (br *WABridge) createPrivatePortalFromInvite(roomID id.RoomID, inviter *User, puppet *Puppet, portal *Portal) {
+func (br *GVBride) createPrivatePortalFromInvite(roomID id.RoomID, inviter *User, puppet *Puppet, portal *Portal) {
 	// TODO check if room is already encrypted
 	var existingEncryption event.EncryptionEventContent
 	var encryptionEnabled bool
@@ -105,7 +113,7 @@ func (br *WABridge) createPrivatePortalFromInvite(roomID id.RoomID, inviter *Use
 	_, _ = intent.SendNotice(roomID, "Private chat portal created")
 }
 
-func (br *WABridge) HandlePresence(evt *event.Event) {
+func (br *GVBride) HandlePresence(evt *event.Event) {
 	user := br.GetUserByMXIDIfExists(evt.Sender)
 	if user == nil || !user.IsLoggedIn() {
 		return

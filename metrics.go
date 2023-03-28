@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	"maunium.net/go/mautrix-whatsapp/database"
+	"github.com/emostar/mautrix-gvoice/database"
 )
 
 type MetricsHandler struct {
@@ -70,68 +70,92 @@ type MetricsHandler struct {
 }
 
 func NewMetricsHandler(address string, log log.Logger, db *database.Database) *MetricsHandler {
-	portalCount := promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "whatsapp_portals_total",
-		Help: "Number of portal rooms on Matrix",
-	}, []string{"type", "encrypted"})
+	portalCount := promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "whatsapp_portals_total",
+			Help: "Number of portal rooms on Matrix",
+		}, []string{"type", "encrypted"},
+	)
 	return &MetricsHandler{
 		db:      db,
 		server:  &http.Server{Addr: address, Handler: promhttp.Handler()},
 		log:     log,
 		running: false,
 
-		matrixEventHandling: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "matrix_event",
-			Help: "Time spent processing Matrix events",
-		}, []string{"event_type"}),
-		whatsappMessageAge: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name:    "remote_event_age",
-			Help:    "Age of messages received from WhatsApp",
-			Buckets: []float64{1, 2, 3, 5, 7.5, 10, 20, 30, 60},
-		}),
-		whatsappMessageHandling: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "remote_event",
-			Help: "Time spent processing WhatsApp messages",
-		}, []string{"message_type"}),
-		countCollection: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name: "whatsapp_count_collection",
-			Help: "Time spent collecting the whatsapp_*_total metrics",
-		}),
-		disconnections: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "whatsapp_disconnections",
-			Help: "Number of times a Matrix user has been disconnected from WhatsApp",
-		}, []string{"user_id"}),
-		incomingRetryReceipts: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "whatsapp_incoming_retry_receipts",
-			Help: "Number of times a remote WhatsApp user has requested a retry from the bridge. retry_count = 5 is usually the last attempt (and very likely means a failed message)",
-		}, []string{"retry_count", "message_found"}),
-		puppetCount: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "whatsapp_puppets_total",
-			Help: "Number of WhatsApp users bridged into Matrix",
-		}),
-		userCount: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "whatsapp_users_total",
-			Help: "Number of Matrix users using the bridge",
-		}),
-		messageCount: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "whatsapp_messages_total",
-			Help: "Number of messages bridged",
-		}),
+		matrixEventHandling: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name: "matrix_event",
+				Help: "Time spent processing Matrix events",
+			}, []string{"event_type"},
+		),
+		whatsappMessageAge: promauto.NewHistogram(
+			prometheus.HistogramOpts{
+				Name:    "remote_event_age",
+				Help:    "Age of messages received from WhatsApp",
+				Buckets: []float64{1, 2, 3, 5, 7.5, 10, 20, 30, 60},
+			},
+		),
+		whatsappMessageHandling: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name: "remote_event",
+				Help: "Time spent processing WhatsApp messages",
+			}, []string{"message_type"},
+		),
+		countCollection: promauto.NewHistogram(
+			prometheus.HistogramOpts{
+				Name: "whatsapp_count_collection",
+				Help: "Time spent collecting the whatsapp_*_total metrics",
+			},
+		),
+		disconnections: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "whatsapp_disconnections",
+				Help: "Number of times a Matrix user has been disconnected from WhatsApp",
+			}, []string{"user_id"},
+		),
+		incomingRetryReceipts: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "whatsapp_incoming_retry_receipts",
+				Help: "Number of times a remote WhatsApp user has requested a retry from the bridge. retry_count = 5 is usually the last attempt (and very likely means a failed message)",
+			}, []string{"retry_count", "message_found"},
+		),
+		puppetCount: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "whatsapp_puppets_total",
+				Help: "Number of WhatsApp users bridged into Matrix",
+			},
+		),
+		userCount: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "whatsapp_users_total",
+				Help: "Number of Matrix users using the bridge",
+			},
+		),
+		messageCount: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "whatsapp_messages_total",
+				Help: "Number of messages bridged",
+			},
+		),
 		portalCount:             portalCount,
 		encryptedGroupCount:     portalCount.With(prometheus.Labels{"type": "group", "encrypted": "true"}),
 		encryptedPrivateCount:   portalCount.With(prometheus.Labels{"type": "private", "encrypted": "true"}),
 		unencryptedGroupCount:   portalCount.With(prometheus.Labels{"type": "group", "encrypted": "false"}),
 		unencryptedPrivateCount: portalCount.With(prometheus.Labels{"type": "private", "encrypted": "false"}),
 
-		loggedIn: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "bridge_logged_in",
-			Help: "Users logged into the bridge",
-		}),
+		loggedIn: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "bridge_logged_in",
+				Help: "Users logged into the bridge",
+			},
+		),
 		loggedInState: make(map[string]bool),
-		connected: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "bridge_connected",
-			Help: "Bridge users connected to WhatsApp",
-		}),
+		connected: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "bridge_connected",
+				Help: "Bridge users connected to WhatsApp",
+			},
+		),
 		connectedState: make(map[string]bool),
 	}
 }
@@ -177,10 +201,12 @@ func (mh *MetricsHandler) TrackRetryReceipt(count int, found bool) {
 	if !mh.running {
 		return
 	}
-	mh.incomingRetryReceipts.With(prometheus.Labels{
-		"retry_count":   strconv.Itoa(count),
-		"message_found": strconv.FormatBool(found),
-	}).Inc()
+	mh.incomingRetryReceipts.With(
+		prometheus.Labels{
+			"retry_count":   strconv.Itoa(count),
+			"message_found": strconv.FormatBool(found),
+		},
+	).Inc()
 }
 
 func (mh *MetricsHandler) TrackLoginState(jid types.JID, loggedIn bool) {
@@ -244,14 +270,16 @@ func (mh *MetricsHandler) updateStats() {
 	}
 
 	var encryptedGroupCount, encryptedPrivateCount, unencryptedGroupCount, unencryptedPrivateCount int
-	err = mh.db.QueryRowContext(mh.ctx, `
+	err = mh.db.QueryRowContext(
+		mh.ctx, `
 			SELECT
 				COUNT(CASE WHEN jid LIKE '%@g.us' AND encrypted THEN 1 END) AS encrypted_group_portals,
 				COUNT(CASE WHEN jid LIKE '%@s.whatsapp.net' AND encrypted THEN 1 END) AS encrypted_private_portals,
 				COUNT(CASE WHEN jid LIKE '%@g.us' AND NOT encrypted THEN 1 END) AS unencrypted_group_portals,
 				COUNT(CASE WHEN jid LIKE '%@s.whatsapp.net' AND NOT encrypted THEN 1 END) AS unencrypted_private_portals
 			FROM portal WHERE mxid<>''
-		`).Scan(&encryptedGroupCount, &encryptedPrivateCount, &unencryptedGroupCount, &unencryptedPrivateCount)
+		`,
+	).Scan(&encryptedGroupCount, &encryptedPrivateCount, &unencryptedGroupCount, &unencryptedPrivateCount)
 	if err != nil {
 		mh.log.Warnln("Failed to scan number of portals:", err)
 	} else {

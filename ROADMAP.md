@@ -1,72 +1,14 @@
 # Features & roadmap
-* Matrix → WhatsApp
-  * [x] Message content
-    * [x] Plain text
-    * [x] Formatted messages
-    * [x] Location messages
-    * [x] Media/files
-    * [x] Replies
-    * [x] Polls
-    * [x] Poll votes
-  * [x] Message redactions
-  * [x] Reactions
-  * [x] Presence
-  * [x] Typing notifications
-  * [x] Read receipts
-  * [ ] Power level
-  * [x] Membership actions
-    * [x] Invite
-    * [x] Leave
-    * [x] Kick
-  * [x] Room metadata changes
-    * [x] Name
-    * [x] Avatar
-    * [x] Topic
-  * [ ] Initial room metadata
-* WhatsApp → Matrix
-  * [x] Message content
-    * [x] Plain text
-    * [x] Formatted messages
-    * [x] Media/files
-    * [x] Location messages
-    * [x] Contact messages
-    * [x] Replies
-    * [x] Polls
-    * [x] Poll votes
+* Matrix → GVoice
+  * [ ] Message content
+    * [ ] Plain text SMS
+    * [ ] Media/files MMS
+* GVoice → Matrix
+  * [ ] Message content
+    * [ ] Plain text SMS
+    * [ ] Media/files MMS
   * [ ] Chat types
-    * [x] Private chat
-    * [x] Group chat
-    * [x] Communities
-    * [x] Status broadcast
-    * [ ] Broadcast list (not currently supported on WhatsApp web)
-  * [x] Message deletions
-  * [x] Reactions
-  * [x] Avatars
-  * [ ] Presence
-  * [x] Typing notifications
-  * [x] Read receipts
-  * [x] Admin/superadmin status
-  * [x] Membership actions
-    * [x] Invite
-    * [x] Join
-    * [x] Leave
-    * [x] Kick
-  * [x] Group metadata changes
-    * [x] Title
-    * [x] Avatar
-    * [x] Description
-  * [x] Initial group metadata
-  * [x] User metadata changes
-    * [x] Display name
-    * [x] Avatar
-  * [x] Initial user metadata
-    * [x] Display name
-    * [x] Avatar
+    * [ ] 1 to 1 Messaging
+    * [ ] Group chat MMS
 * Misc
-  * [x] Automatic portal creation
-    * [x] After login
-    * [x] When added to group
-    * [x] When receiving message
-  * [x] Private chat creation by inviting Matrix puppet of WhatsApp user to new room
-  * [x] Option to use own Matrix account for messages sent from WhatsApp mobile/other web clients
-  * [x] Shared group chat portals
+  * [x] Private chat creation by inviting Matrix puppet of GVoice user to new room

@@ -1,4 +1,4 @@
-// mautrix-whatsapp - A Matrix-WhatsApp puppeting bridge.
+// mautrix-gvoice - A Matrix-GVoice puppeting bridge.
 // Copyright (C) 2021 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
@@ -56,7 +56,10 @@ func (pq *PuppetQuery) GetAll() (puppets []*Puppet) {
 }
 
 func (pq *PuppetQuery) Get(jid types.JID) *Puppet {
-	row := pq.db.QueryRow("SELECT username, avatar, avatar_url, displayname, name_quality, name_set, avatar_set, last_sync, custom_mxid, access_token, next_batch, enable_presence, enable_receipts FROM puppet WHERE username=$1", jid.User)
+	row := pq.db.QueryRow(
+		"SELECT username, avatar, avatar_url, displayname, name_quality, name_set, avatar_set, last_sync, custom_mxid, access_token, next_batch, enable_presence, enable_receipts FROM puppet WHERE username=$1",
+		jid.User,
+	)
 	if row == nil {
 		return nil
 	}
@@ -64,7 +67,10 @@ func (pq *PuppetQuery) Get(jid types.JID) *Puppet {
 }
 
 func (pq *PuppetQuery) GetByCustomMXID(mxid id.UserID) *Puppet {
-	row := pq.db.QueryRow("SELECT username, avatar, avatar_url, displayname, name_quality, name_set, avatar_set, last_sync, custom_mxid, access_token, next_batch, enable_presence, enable_receipts FROM puppet WHERE custom_mxid=$1", mxid)
+	row := pq.db.QueryRow(
+		"SELECT username, avatar, avatar_url, displayname, name_quality, name_set, avatar_set, last_sync, custom_mxid, access_token, next_batch, enable_presence, enable_receipts FROM puppet WHERE custom_mxid=$1",
+		mxid,
+	)
 	if row == nil {
 		return nil
 	}
@@ -108,7 +114,10 @@ func (puppet *Puppet) Scan(row dbutil.Scannable) *Puppet {
 	var quality, lastSync sql.NullInt64
 	var enablePresence, enableReceipts, nameSet, avatarSet sql.NullBool
 	var username string
-	err := row.Scan(&username, &avatar, &avatarURL, &displayname, &quality, &nameSet, &avatarSet, &lastSync, &customMXID, &accessToken, &nextBatch, &enablePresence, &enableReceipts)
+	err := row.Scan(
+		&username, &avatar, &avatarURL, &displayname, &quality, &nameSet, &avatarSet, &lastSync, &customMXID,
+		&accessToken, &nextBatch, &enablePresence, &enableReceipts,
+	)
 	if err != nil {
 		if err != sql.ErrNoRows {
 			puppet.log.Errorln("Database scan failed:", err)
@@ -142,7 +151,8 @@ func (puppet *Puppet) Insert() {
 	if !puppet.LastSync.IsZero() {
 		lastSyncTs = puppet.LastSync.Unix()
 	}
-	_, err := puppet.db.Exec(`
+	_, err := puppet.db.Exec(
+		`
 		INSERT INTO puppet (username, avatar, avatar_url, avatar_set, displayname, name_quality, name_set, last_sync,
 		                    custom_mxid, access_token, next_batch, enable_presence, enable_receipts)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -160,14 +170,18 @@ func (puppet *Puppet) Update() {
 	if !puppet.LastSync.IsZero() {
 		lastSyncTs = puppet.LastSync.Unix()
 	}
-	_, err := puppet.db.Exec(`
+	_, err := puppet.db.Exec(
+		`
 		UPDATE puppet
 		SET displayname=$1, name_quality=$2, name_set=$3, avatar=$4, avatar_url=$5, avatar_set=$6, last_sync=$7,
 		    custom_mxid=$8, access_token=$9, next_batch=$10, enable_presence=$11, enable_receipts=$12
 		WHERE username=$13
-	`, puppet.Displayname, puppet.NameQuality, puppet.NameSet, puppet.Avatar, puppet.AvatarURL.String(), puppet.AvatarSet,
-		lastSyncTs, puppet.CustomMXID, puppet.AccessToken, puppet.NextBatch, puppet.EnablePresence, puppet.EnableReceipts,
-		puppet.JID.User)
+	`, puppet.Displayname, puppet.NameQuality, puppet.NameSet, puppet.Avatar, puppet.AvatarURL.String(),
+		puppet.AvatarSet,
+		lastSyncTs, puppet.CustomMXID, puppet.AccessToken, puppet.NextBatch, puppet.EnablePresence,
+		puppet.EnableReceipts,
+		puppet.JID.User,
+	)
 	if err != nil {
 		puppet.log.Warnfln("Failed to update %s: %v", puppet.JID, err)
 	}

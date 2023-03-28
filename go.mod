@@ -1,4 +1,4 @@
-module maunium.net/go/mautrix-whatsapp
+module github.com/emostar/mautrix-gvoice
 
 go 1.19
 
