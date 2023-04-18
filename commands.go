@@ -17,67 +17,51 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"html"
-	"math"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/skip2/go-qrcode"
-	"github.com/tidwall/gjson"
-
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/appstate"
-	"go.mau.fi/whatsmeow/types"
-
-	"maunium.net/go/mautrix"
-	"maunium.net/go/mautrix/bridge"
-	"maunium.net/go/mautrix/bridge/commands"
-	"maunium.net/go/mautrix/bridge/status"
-	"maunium.net/go/mautrix/event"
-	"maunium.net/go/mautrix/id"
 
 	"github.com/emostar/mautrix-gvoice/database"
+	"go.mau.fi/whatsmeow/appstate"
+	"maunium.net/go/mautrix/bridge/commands"
 )
 
 type WrappedCommandEvent struct {
 	*commands.Event
-	Bridge *GVBride
+	Bridge *GVBridge
 	User   *User
 	Portal *Portal
 }
 
-func (br *GVBride) RegisterCommands() {
+func (br *GVBridge) RegisterCommands() {
 	proc := br.CommandProcessor.(*commands.Processor)
 	proc.AddHandlers(
-		cmdSetRelay,
-		cmdUnsetRelay,
-		cmdInviteLink,
-		cmdResolveLink,
-		cmdJoin,
-		cmdAccept,
-		cmdCreate,
-		cmdLogin,
-		cmdLogout,
-		cmdTogglePresence,
-		cmdDeleteSession,
-		cmdReconnect,
-		cmdDisconnect,
+		cmdAuth,
 		cmdPing,
-		cmdDeletePortal,
-		cmdDeleteAllPortals,
 		cmdBackfill,
-		cmdList,
-		cmdSearch,
-		cmdOpen,
-		cmdPM,
 		cmdSync,
-		cmdDisappearingTimer,
+		/*
+			cmdLogin,
+			cmdLogout,
+			cmdSetRelay,
+			cmdUnsetRelay,
+			cmdInviteLink,
+			cmdResolveLink,
+			cmdJoin,
+			cmdAccept,
+			cmdCreate,
+			cmdTogglePresence,
+			cmdDeleteSession,
+			cmdReconnect,
+			cmdDisconnect,
+			cmdDeletePortal,
+			cmdDeleteAllPortals,
+			cmdList,
+			cmdSearch,
+			cmdOpen,
+			cmdPM,
+			cmdDisappearingTimer,
+		*/
 	)
 }
 
@@ -88,7 +72,7 @@ func wrapCommand(handler func(*WrappedCommandEvent)) func(*commands.Event) {
 		if ce.Portal != nil {
 			portal = ce.Portal.(*Portal)
 		}
-		br := ce.Bridge.Child.(*GVBride)
+		br := ce.Bridge.Child.(*GVBridge)
 		handler(&WrappedCommandEvent{ce, br, user, portal})
 	}
 }
@@ -101,6 +85,194 @@ var (
 	HelpSectionMiscellaneous        = commands.HelpSection{Name: "Miscellaneous", Order: 30}
 )
 
+var cmdAuth = &commands.FullHandler{
+	Func: wrapCommand(fnAuth),
+	Name: "auth",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionConnectionManagement,
+		Description: "Set the authentication cookies for your Google Voice account",
+	},
+}
+
+func fnAuth(ce *WrappedCommandEvent) {
+	if len(ce.Args) == 0 {
+		ce.Reply("Please provide your Google cookies as an argument")
+		return
+	}
+
+	cookie := strings.Join(ce.Args, " ")
+	ce.User.Client.SetAuth(cookie)
+	info, err := ce.User.Client.GetAccountInfo()
+	if err != nil {
+		ce.Reply("Failed to log in to Google Voice: %v", err)
+		return
+	}
+
+	ce.User.Cookies = cookie
+	ce.User.Update()
+
+	ce.Reply("Successfully logged in to Google Voice as %s", info.PrimaryDID)
+}
+
+var cmdPing = &commands.FullHandler{
+	Func: wrapCommand(fnPing),
+	Name: "ping",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionConnectionManagement,
+		Description: "Check your connection to Google Voice.",
+	},
+}
+
+func fnPing(ce *WrappedCommandEvent) {
+	// TODO Add BrowserChannel status here
+	if ce.User.Cookies == "" {
+		ce.Reply("You're not logged into Google Voice.")
+	} else {
+		info, err := ce.User.Client.GetAccountInfo()
+		if err != nil {
+			ce.Reply("You have been logged out of Google Voice. Please log in again.")
+		}
+		ce.Reply("Logged in as %s", info.PrimaryDID)
+	}
+}
+
+var cmdBackfill = &commands.FullHandler{
+	Func: wrapCommand(fnBackfill),
+	Name: "backfill",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionPortalManagement,
+		Description: "Backfill all messages the portal.",
+		Args:        "[_batch size_] [_batch delay_]",
+	},
+	RequiresPortal: true,
+}
+
+func fnBackfill(ce *WrappedCommandEvent) {
+	if !ce.Bridge.Config.Bridge.HistorySync.Backfill {
+		ce.Reply("Backfill is not enabled for this bridge.")
+		return
+	}
+	batchSize := 100
+	batchDelay := 5
+	if len(ce.Args) >= 1 {
+		var err error
+		batchSize, err = strconv.Atoi(ce.Args[0])
+		if err != nil || batchSize < 1 {
+			ce.Reply("\"%s\" isn't a valid batch size", ce.Args[0])
+			return
+		}
+	}
+	if len(ce.Args) >= 2 {
+		var err error
+		batchDelay, err = strconv.Atoi(ce.Args[0])
+		if err != nil || batchSize < 0 {
+			ce.Reply("\"%s\" isn't a valid batch delay", ce.Args[1])
+			return
+		}
+	}
+	backfillMessages := ce.Portal.bridge.DB.Backfill.NewWithValues(
+		ce.User.MXID, database.BackfillImmediate, 0, ce.Portal.KeyGV, nil, batchSize, -1, batchDelay,
+	)
+	backfillMessages.Insert()
+
+	ce.User.BackfillQueue.ReCheck()
+}
+
+var cmdSync = &commands.FullHandler{
+	Func: wrapCommand(fnSync),
+	Name: "sync",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionMiscellaneous,
+		Description: "Synchronize data from GoogleVoice.",
+		Args:        "<threads> [--contact-avatars] [--create-portals]",
+	},
+	RequiresLogin: true,
+}
+
+func fnSync(ce *WrappedCommandEvent) {
+	args := strings.ToLower(strings.Join(ce.Args, " "))
+	contacts := strings.Contains(args, "contacts")
+	appState := strings.Contains(args, "appstate")
+	space := strings.Contains(args, "space")
+	groups := strings.Contains(args, "groups") || space
+	threads := strings.Contains(args, "threads")
+	if !threads {
+		ce.Reply("**Usage:** `sync <threads> [--contact-avatars] [--create-portals]`")
+		return
+	}
+	createPortals := strings.Contains(args, "--create-portals")
+	contactAvatars := strings.Contains(args, "--contact-avatars")
+	if contactAvatars && (!contacts || appState) {
+		ce.Reply("`--contact-avatars` can only be used with `sync contacts`")
+		return
+	}
+	if createPortals && !groups && !threads {
+		ce.Reply("`--create-portals` can only be used with `sync groups`")
+		return
+	}
+
+	if appState {
+		for _, name := range appstate.AllPatchNames {
+			err := ce.User.Client.FetchAppState(name, true, false)
+			if errors.Is(err, appstate.ErrKeyNotFound) {
+				ce.Reply(
+					"Key not found error syncing app state %s: %v\n\nKey requests are sent automatically, and the sync should happen in the background after your phone responds.",
+					name, err,
+				)
+				return
+			} else if err != nil {
+				ce.Reply("Error syncing app state %s: %v", name, err)
+			} else if name == appstate.WAPatchCriticalUnblockLow {
+				ce.Reply("Synced app state %s, contact sync running in background", name)
+			} else {
+				ce.Reply("Synced app state %s", name)
+			}
+		}
+	} else if contacts {
+		err := ce.User.ResyncContacts(contactAvatars)
+		if err != nil {
+			ce.Reply("Error resyncing contacts: %v", err)
+		} else {
+			ce.Reply("Resynced contacts")
+		}
+	}
+	if space {
+		if !ce.Bridge.Config.Bridge.PersonalFilteringSpaces {
+			ce.Reply("Personal filtering spaces are not enabled on this instance of the bridge")
+			return
+		}
+		keys := ce.Bridge.DB.Portal.FindPrivateChatsNotInSpace(ce.User.JID)
+		count := 0
+		for _, key := range keys {
+			portal := ce.Bridge.GetPortalByJID(key)
+			portal.addToPersonalSpace(ce.User)
+			count++
+		}
+		plural := "s"
+		if count == 1 {
+			plural = ""
+		}
+		ce.Reply("Added %d DM room%s to space", count, plural)
+	}
+	if groups {
+		err := ce.User.ResyncGroups(createPortals)
+		if err != nil {
+			ce.Reply("Error resyncing groups: %v", err)
+		} else {
+			ce.Reply("Resynced groups")
+		}
+	}
+	if threads {
+		err := ce.User.ResyncThreads(createPortals)
+		if err != nil {
+			ce.Reply("Error resyncing threads: %v", err)
+		} else {
+			ce.Reply("Resynced threads")
+		}
+	}
+}
+
+/*
 var cmdSetRelay = &commands.FullHandler{
 	Func: wrapCommand(fnSetRelay),
 	Name: "set-relay",
@@ -800,48 +972,6 @@ func fnDeleteAllPortals(ce *WrappedCommandEvent) {
 	}()
 }
 
-var cmdBackfill = &commands.FullHandler{
-	Func: wrapCommand(fnBackfill),
-	Name: "backfill",
-	Help: commands.HelpMeta{
-		Section:     HelpSectionPortalManagement,
-		Description: "Backfill all messages the portal.",
-		Args:        "[_batch size_] [_batch delay_]",
-	},
-	RequiresPortal: true,
-}
-
-func fnBackfill(ce *WrappedCommandEvent) {
-	if !ce.Bridge.Config.Bridge.HistorySync.Backfill {
-		ce.Reply("Backfill is not enabled for this bridge.")
-		return
-	}
-	batchSize := 100
-	batchDelay := 5
-	if len(ce.Args) >= 1 {
-		var err error
-		batchSize, err = strconv.Atoi(ce.Args[0])
-		if err != nil || batchSize < 1 {
-			ce.Reply("\"%s\" isn't a valid batch size", ce.Args[0])
-			return
-		}
-	}
-	if len(ce.Args) >= 2 {
-		var err error
-		batchDelay, err = strconv.Atoi(ce.Args[0])
-		if err != nil || batchSize < 0 {
-			ce.Reply("\"%s\" isn't a valid batch delay", ce.Args[1])
-			return
-		}
-	}
-	backfillMessages := ce.Portal.bridge.DB.Backfill.NewWithValues(
-		ce.User.MXID, database.BackfillImmediate, 0, &ce.Portal.Key, nil, batchSize, -1, batchDelay,
-	)
-	backfillMessages.Insert()
-
-	ce.User.BackfillQueue.ReCheck()
-}
-
 func matchesQuery(str string, query string) bool {
 	if query == "" {
 		return true
@@ -849,7 +979,7 @@ func matchesQuery(str string, query string) bool {
 	return strings.Contains(strings.ToLower(str), query)
 }
 
-func formatContacts(bridge *GVBride, input map[types.JID]types.ContactInfo, query string) (result []string) {
+func formatContacts(bridge *GVBridge, input map[types.JID]types.ContactInfo, query string) (result []string) {
 	hasQuery := len(query) > 0
 	for jid, contact := range input {
 		if len(contact.FullName) == 0 {
@@ -1111,90 +1241,6 @@ func fnPM(ce *WrappedCommandEvent) {
 	}
 }
 
-var cmdSync = &commands.FullHandler{
-	Func: wrapCommand(fnSync),
-	Name: "sync",
-	Help: commands.HelpMeta{
-		Section:     HelpSectionMiscellaneous,
-		Description: "Synchronize data from WhatsApp.",
-		Args:        "<appstate/contacts/groups/space> [--contact-avatars] [--create-portals]",
-	},
-	RequiresLogin: true,
-}
-
-func fnSync(ce *WrappedCommandEvent) {
-	args := strings.ToLower(strings.Join(ce.Args, " "))
-	contacts := strings.Contains(args, "contacts")
-	appState := strings.Contains(args, "appstate")
-	space := strings.Contains(args, "space")
-	groups := strings.Contains(args, "groups") || space
-	if !contacts && !appState && !space && !groups {
-		ce.Reply("**Usage:** `sync <appstate/contacts/groups/space> [--contact-avatars] [--create-portals]`")
-		return
-	}
-	createPortals := strings.Contains(args, "--create-portals")
-	contactAvatars := strings.Contains(args, "--contact-avatars")
-	if contactAvatars && (!contacts || appState) {
-		ce.Reply("`--contact-avatars` can only be used with `sync contacts`")
-		return
-	}
-	if createPortals && !groups {
-		ce.Reply("`--create-portals` can only be used with `sync groups`")
-		return
-	}
-
-	if appState {
-		for _, name := range appstate.AllPatchNames {
-			err := ce.User.Client.FetchAppState(name, true, false)
-			if errors.Is(err, appstate.ErrKeyNotFound) {
-				ce.Reply(
-					"Key not found error syncing app state %s: %v\n\nKey requests are sent automatically, and the sync should happen in the background after your phone responds.",
-					name, err,
-				)
-				return
-			} else if err != nil {
-				ce.Reply("Error syncing app state %s: %v", name, err)
-			} else if name == appstate.WAPatchCriticalUnblockLow {
-				ce.Reply("Synced app state %s, contact sync running in background", name)
-			} else {
-				ce.Reply("Synced app state %s", name)
-			}
-		}
-	} else if contacts {
-		err := ce.User.ResyncContacts(contactAvatars)
-		if err != nil {
-			ce.Reply("Error resyncing contacts: %v", err)
-		} else {
-			ce.Reply("Resynced contacts")
-		}
-	}
-	if space {
-		if !ce.Bridge.Config.Bridge.PersonalFilteringSpaces {
-			ce.Reply("Personal filtering spaces are not enabled on this instance of the bridge")
-			return
-		}
-		keys := ce.Bridge.DB.Portal.FindPrivateChatsNotInSpace(ce.User.JID)
-		count := 0
-		for _, key := range keys {
-			portal := ce.Bridge.GetPortalByJID(key)
-			portal.addToPersonalSpace(ce.User)
-			count++
-		}
-		plural := "s"
-		if count == 1 {
-			plural = ""
-		}
-		ce.Reply("Added %d DM room%s to space", count, plural)
-	}
-	if groups {
-		err := ce.User.ResyncGroups(createPortals)
-		if err != nil {
-			ce.Reply("Error resyncing groups: %v", err)
-		} else {
-			ce.Reply("Resynced groups")
-		}
-	}
-}
 
 var cmdDisappearingTimer = &commands.FullHandler{
 	Func:    wrapCommand(fnDisappearingTimer),
@@ -1230,3 +1276,4 @@ func fnDisappearingTimer(ce *WrappedCommandEvent) {
 	ce.Portal.Update(nil)
 	ce.React("✅")
 }
+*/

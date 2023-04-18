@@ -18,7 +18,6 @@ package main
 
 import (
 	_ "embed"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -27,7 +26,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -56,7 +54,7 @@ var (
 //go:embed example-config.yaml
 var ExampleConfig string
 
-type GVBride struct {
+type GVBridge struct {
 	bridge.Bridge
 	Config       *config.Config
 	DB           *database.Database
@@ -74,14 +72,16 @@ type GVBride struct {
 	managementRooms     map[id.RoomID]*User
 	managementRoomsLock sync.Mutex
 	portalsByMXID       map[id.RoomID]*Portal
+	portalsByThreadID   map[string]*Portal
 	portalsByJID        map[database.PortalKey]*Portal
 	portalsLock         sync.Mutex
+	gvPuppets           map[string]*Puppet
 	puppets             map[types.JID]*Puppet
 	puppetsByCustomMXID map[id.UserID]*Puppet
 	puppetsLock         sync.Mutex
 }
 
-func (br *GVBride) Init() {
+func (br *GVBridge) Init() {
 	br.CommandProcessor = commands.NewProcessor(&br.Bridge)
 	br.RegisterCommands()
 
@@ -142,17 +142,16 @@ func (br *GVBride) Init() {
 	}
 }
 
-func (br *GVBride) Start() {
+func (br *GVBridge) Start() {
 	err := br.GVContainer.Upgrade()
 	if err != nil {
-		br.Log.Fatalln("Failed to upgrade whatsmeow database: %v", err)
+		br.Log.Fatalln("Failed to upgrade libgvoice database: %v", err)
 		os.Exit(15)
 	}
 	if br.Provisioning != nil {
 		br.Log.Debugln("Initializing provisioning API")
 		br.Provisioning.Init()
 	}
-	go br.CheckWhatsAppUpdate()
 	go br.StartUsers()
 	if br.Config.Metrics.Enabled {
 		go br.Metrics.Start()
@@ -161,38 +160,7 @@ func (br *GVBride) Start() {
 	go br.Loop()
 }
 
-func (br *GVBride) CheckWhatsAppUpdate() {
-	br.Log.Debugfln("Checking for WhatsApp web update")
-	resp, err := whatsmeow.CheckUpdate(http.DefaultClient)
-	if err != nil {
-		br.Log.Warnfln("Failed to check for WhatsApp web update: %v", err)
-		return
-	}
-	if store.GetWAVersion() == resp.ParsedVersion {
-		br.Log.Debugfln("Bridge is using latest WhatsApp web protocol")
-	} else if store.GetWAVersion().LessThan(resp.ParsedVersion) {
-		if resp.IsBelowHard || resp.IsBroken {
-			br.Log.Warnfln(
-				"Bridge is using outdated WhatsApp web protocol and probably doesn't work anymore (%s, latest is %s)",
-				store.GetWAVersion(), resp.ParsedVersion,
-			)
-		} else if resp.IsBelowSoft {
-			br.Log.Infofln(
-				"Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(),
-				resp.ParsedVersion,
-			)
-		} else {
-			br.Log.Debugfln(
-				"Bridge is using outdated WhatsApp web protocol (%s, latest is %s)", store.GetWAVersion(),
-				resp.ParsedVersion,
-			)
-		}
-	} else {
-		br.Log.Debugfln("Bridge is using newer than latest WhatsApp web protocol")
-	}
-}
-
-func (br *GVBride) Loop() {
+func (br *GVBridge) Loop() {
 	for {
 		br.SleepAndDeleteUpcoming()
 		time.Sleep(1 * time.Hour)
@@ -200,7 +168,7 @@ func (br *GVBride) Loop() {
 	}
 }
 
-func (br *GVBride) WarnUsersAboutDisconnection() {
+func (br *GVBridge) WarnUsersAboutDisconnection() {
 	br.usersLock.Lock()
 	for _, user := range br.usersByUsername {
 		if user.IsConnected() && !user.PhoneRecentlySeen(true) {
@@ -210,11 +178,11 @@ func (br *GVBride) WarnUsersAboutDisconnection() {
 	br.usersLock.Unlock()
 }
 
-func (br *GVBride) StartUsers() {
+func (br *GVBridge) StartUsers() {
 	br.Log.Debugln("Starting users")
 	foundAnySessions := false
 	for _, user := range br.GetAllUsers() {
-		if !user.JID.IsEmpty() {
+		if user.Cookies != "" {
 			foundAnySessions = true
 		}
 		go user.Connect()
@@ -234,7 +202,7 @@ func (br *GVBride) StartUsers() {
 	}
 }
 
-func (br *GVBride) Stop() {
+func (br *GVBridge) Stop() {
 	br.Metrics.Stop()
 	for _, user := range br.usersByUsername {
 		if user.Client == nil {
@@ -246,11 +214,11 @@ func (br *GVBride) Stop() {
 	}
 }
 
-func (br *GVBride) GetExampleConfig() string {
+func (br *GVBridge) GetExampleConfig() string {
 	return ExampleConfig
 }
 
-func (br *GVBride) GetConfigPtr() interface{} {
+func (br *GVBridge) GetConfigPtr() interface{} {
 	br.Config = &config.Config{
 		BaseConfig: &br.Bridge.Config,
 	}
@@ -260,7 +228,7 @@ func (br *GVBride) GetConfigPtr() interface{} {
 
 const unstableFeatureBatchSending = "org.matrix.msc2716"
 
-func (br *GVBride) CheckFeatures(versions *mautrix.RespVersions) (string, bool) {
+func (br *GVBridge) CheckFeatures(versions *mautrix.RespVersions) (string, bool) {
 	if br.Config.Bridge.HistorySync.Backfill {
 		supported, known := versions.UnstableFeatures[unstableFeatureBatchSending]
 		if !known {
@@ -273,13 +241,15 @@ func (br *GVBride) CheckFeatures(versions *mautrix.RespVersions) (string, bool) 
 }
 
 func main() {
-	br := &GVBride{
+	br := &GVBridge{
 		usersByMXID:         make(map[id.UserID]*User),
 		usersByUsername:     make(map[string]*User),
 		spaceRooms:          make(map[id.RoomID]*User),
 		managementRooms:     make(map[id.RoomID]*User),
 		portalsByMXID:       make(map[id.RoomID]*Portal),
+		portalsByThreadID:   map[string]*Portal{},
 		portalsByJID:        make(map[database.PortalKey]*Portal),
+		gvPuppets:           map[string]*Puppet{},
 		puppets:             make(map[types.JID]*Puppet),
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
 	}

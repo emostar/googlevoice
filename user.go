@@ -52,15 +52,17 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
+	"github.com/beeper/libgvoice"
+	gvEvents "github.com/beeper/libgvoice/events"
 	"github.com/emostar/mautrix-gvoice/database"
 )
 
 type User struct {
 	*database.User
-	Client  *whatsmeow.Client
+	Client  *libgvoice.GoogleVoiceClient
 	Session *store.Device
 
-	bridge *GVBride
+	bridge *GVBridge
 	log    log.Logger
 
 	Admin            bool
@@ -90,6 +92,8 @@ type User struct {
 	resyncQueue     map[types.JID]resyncQueueItem
 	resyncQueueLock sync.Mutex
 	nextResync      time.Time
+
+	eventChannel chan interface{}
 }
 
 type resyncQueueItem struct {
@@ -97,7 +101,7 @@ type resyncQueueItem struct {
 	puppet *Puppet
 }
 
-func (br *GVBride) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
+func (br *GVBridge) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
 	_, isPuppet := br.ParsePuppetMXID(userID)
 	if isPuppet || userID == br.Bot.UserID {
 		return nil
@@ -115,11 +119,11 @@ func (br *GVBride) getUserByMXID(userID id.UserID, onlyIfExists bool) *User {
 	return user
 }
 
-func (br *GVBride) GetUserByMXID(userID id.UserID) *User {
+func (br *GVBridge) GetUserByMXID(userID id.UserID) *User {
 	return br.getUserByMXID(userID, false)
 }
 
-func (br *GVBride) GetIUser(userID id.UserID, create bool) bridge.User {
+func (br *GVBridge) GetIUser(userID id.UserID, create bool) bridge.User {
 	u := br.getUserByMXID(userID, !create)
 	if u == nil {
 		return nil
@@ -143,11 +147,11 @@ func (user *User) GetCommandState() map[string]interface{} {
 	return nil
 }
 
-func (br *GVBride) GetUserByMXIDIfExists(userID id.UserID) *User {
+func (br *GVBridge) GetUserByMXIDIfExists(userID id.UserID) *User {
 	return br.getUserByMXID(userID, true)
 }
 
-func (br *GVBride) GetUserByJID(jid types.JID) *User {
+func (br *GVBridge) GetUserByJID(jid types.JID) *User {
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 	user, ok := br.usersByUsername[jid.User]
@@ -174,7 +178,7 @@ func (user *User) removeFromJIDMap(state status.BridgeState) {
 	user.BridgeState.Send(state)
 }
 
-func (br *GVBride) GetAllUsers() []*User {
+func (br *GVBridge) GetAllUsers() []*User {
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 	dbUsers := br.DB.User.GetAll()
@@ -189,7 +193,7 @@ func (br *GVBride) GetAllUsers() []*User {
 	return output
 }
 
-func (br *GVBride) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
+func (br *GVBridge) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
 	if dbUser == nil {
 		if mxid == nil {
 			return nil
@@ -220,7 +224,7 @@ func (br *GVBride) loadDBUser(dbUser *database.User, mxid *id.UserID) *User {
 	return user
 }
 
-func (br *GVBride) NewUser(dbUser *database.User) *User {
+func (br *GVBridge) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,
 		bridge: br,
@@ -447,7 +451,7 @@ func (user *User) GetManagementRoom() id.RoomID {
 		}
 		resp, err := user.bridge.Bot.CreateRoom(
 			&mautrix.ReqCreateRoom{
-				Topic:           "WhatsApp bridge notices",
+				Topic:           "GVoice bridge notices",
 				IsDirect:        true,
 				CreationContent: creationContent,
 			},
@@ -494,8 +498,8 @@ func (user *User) obfuscateJID(jid types.JID) string {
 }
 
 func (user *User) createClient(sess *store.Device) {
-	user.Client = whatsmeow.NewClient(sess, &waLogger{user.log.Sub("Client")})
-	user.Client.AddEventHandler(user.HandleEvent)
+	user.eventChannel = make(chan interface{})
+	user.Client = libgvoice.NewGoogleVoiceClient(user.log.Sub("Client"), user.eventChannel)
 	user.Client.SetForceActiveDeliveryReceipts(user.bridge.Config.Bridge.ForceActiveDeliveryReceipts)
 	user.Client.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waProto.Message {
 		Segment.Track(
@@ -518,6 +522,34 @@ func (user *User) createClient(sess *store.Device) {
 		user.bridge.Metrics.TrackRetryReceipt(retryCount, true)
 		return true
 	}
+
+	go user.eventListener()
+}
+
+func (user *User) eventListener() {
+	for evt := range user.eventChannel {
+		switch evt.(type) {
+		case *gvEvents.ConnectedEvent:
+			gvEvent := evt.(*gvEvents.ConnectedEvent)
+			user.log.Debugf("Got connected event: %#v", gvEvent)
+
+			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
+			if user.PrimaryDID != gvEvent.PrimaryDID {
+				user.PrimaryDID = gvEvent.PrimaryDID
+				user.Update()
+			}
+
+			go user.tryAutomaticDoublePuppeting()
+
+			// TODO Start backfill here
+			if user.bridge.Config.Bridge.HistorySync.Backfill && !user.historySyncLoopsStarted {
+				go user.handleHistorySyncsLoop()
+				user.historySyncLoopsStarted = true
+			}
+
+			break
+		}
+	}
 }
 
 func (user *User) Login(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error) {
@@ -535,7 +567,7 @@ func (user *User) Login(ctx context.Context) (<-chan whatsmeow.QRChannelItem, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to get QR channel: %w", err)
 	}
-	err = user.Client.Connect()
+	err = user.Client.Connect(user.Cookies)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to WhatsApp: %w", err)
 	}
@@ -547,15 +579,13 @@ func (user *User) Connect() bool {
 	defer user.connLock.Unlock()
 	if user.Client != nil {
 		return user.Client.IsConnected()
-	} else if user.Session == nil {
-		return false
 	}
-	user.log.Debugln("Connecting to WhatsApp")
+	user.log.Debugln("Connecting to GoogleVoice")
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnecting, Error: WAConnecting})
 	user.createClient(user.Session)
-	err := user.Client.Connect()
+	err := user.Client.Connect(user.Cookies)
 	if err != nil {
-		user.log.Warnln("Error connecting to WhatsApp:", err)
+		user.log.Warnln("Error connecting to GoogleVoice", err)
 		user.BridgeState.Send(
 			status.BridgeState{
 				StateEvent: status.StateUnknownError,
@@ -623,7 +653,7 @@ func (user *User) tryAutomaticDoublePuppeting() {
 		return
 	}
 	user.log.Debugln("Checking if double puppeting needs to be enabled")
-	puppet := user.bridge.GetPuppetByJID(user.JID)
+	puppet := user.bridge.GetPuppetByID(user.PrimaryDID)
 	if len(puppet.CustomMXID) > 0 {
 		user.log.Debugln("User already has double-puppeting enabled")
 		// Custom puppet already enabled
@@ -774,6 +804,8 @@ func (user *User) sendPhoneOfflineWarning() {
 }
 
 func (user *User) HandleEvent(event interface{}) {
+	user.log.Infof("Handling event: %#v", event)
+
 	switch v := event.(type) {
 	case *events.LoggedOut:
 		go user.handleLoggedOut(v.OnConnect, v.Reason)
@@ -1078,26 +1110,26 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 		return
 	}
 	if justCreated || !user.bridge.Config.Bridge.TagOnlyOnCreate {
-		chat, err := user.Client.Store.ChatSettings.GetChatSettings(portal.Key.JID)
-		if err != nil {
-			user.log.Warnfln("Failed to get settings of %s: %v", portal.Key.JID, err)
-			return
-		}
+		// chat, err := user.Client.Store.ChatSettings.GetChatSettings(portal.Key.JID)
+		// if err != nil {
+		// 	user.log.Warnfln("Failed to get settings of %s: %v", portal.Key.JID, err)
+		// 	return
+		// }
 		intent := doublePuppet.CustomIntent()
-		if portal.Key.JID == types.StatusBroadcastJID && justCreated {
+		if justCreated {
 			if user.bridge.Config.Bridge.MuteStatusBroadcast {
 				user.updateChatMute(intent, portal, time.Now().Add(365*24*time.Hour))
 			}
 			if len(user.bridge.Config.Bridge.StatusBroadcastTag) > 0 {
 				user.updateChatTag(intent, portal, user.bridge.Config.Bridge.StatusBroadcastTag, true)
 			}
-			return
-		} else if !chat.Found {
-			return
+			// return
+			// } else if !chat.Found {
+			// 	return
 		}
-		user.updateChatMute(intent, portal, chat.MutedUntil)
-		user.updateChatTag(intent, portal, user.bridge.Config.Bridge.ArchiveTag, chat.Archived)
-		user.updateChatTag(intent, portal, user.bridge.Config.Bridge.PinnedTag, chat.Pinned)
+		// user.updateChatMute(intent, portal, chat.MutedUntil)
+		// user.updateChatTag(intent, portal, user.bridge.Config.Bridge.ArchiveTag, chat.Archived)
+		// user.updateChatTag(intent, portal, user.bridge.Config.Bridge.PinnedTag, chat.Pinned)
 	}
 }
 
@@ -1106,7 +1138,8 @@ func (user *User) getDirectChats() map[id.UserID][]id.RoomID {
 	privateChats := user.bridge.DB.Portal.FindPrivateChats(user.JID.ToNonAD())
 	for _, portal := range privateChats {
 		if len(portal.MXID) > 0 {
-			res[user.bridge.FormatPuppetMXID(portal.Key.JID)] = []id.RoomID{portal.MXID}
+			// TODO Just Key.ID
+			res[user.bridge.FormatPuppetMXID(portal.Key.JID.User)] = []id.RoomID{portal.MXID}
 		}
 	}
 	return res
@@ -1198,6 +1231,10 @@ func (user *User) GetPortalByMessageSource(ms types.MessageSource) *Portal {
 	return user.bridge.GetPortalByJID(database.NewPortalKey(jid, user.JID))
 }
 
+func (user *User) GetPortalByID(id string) *Portal {
+	return user.bridge.GetPortalByThreadID(id)
+}
+
 func (user *User) GetPortalByJID(jid types.JID) *Portal {
 	return user.bridge.GetPortalByJID(database.NewPortalKey(jid, user.JID))
 }
@@ -1220,6 +1257,32 @@ func (user *User) ResyncContacts(forceAvatarSync bool) error {
 			user.log.Warnfln("Got a nil puppet for %s while syncing contacts", jid)
 		}
 	}
+	return nil
+}
+
+func (user *User) ResyncThreads(createPortals bool) error {
+	threads, err := user.Client.FetchInbox("", false)
+	if err != nil {
+		return fmt.Errorf("failed to get thread list from server: %w", err)
+	}
+
+	for _, thread := range threads {
+		user.log.Debugf("Got thread: %s with %d messages", thread.ID, len(thread.Messages))
+		portal := user.GetPortalByID(thread.ID)
+		if len(portal.MXID) == 0 {
+			user.log.Debugf("Creating portal for %s", thread.ID)
+			if createPortals {
+				err = portal.CreateMatrixRoomGV(user, thread, true, true)
+				if err != nil {
+					return fmt.Errorf("failed to create room for %s: %w", thread.ID, err)
+				}
+			}
+		} else {
+			user.log.Debugf("Updating portal for %s (%s)", thread.ID, portal.MXID)
+			portal.UpdateMatrixRoomGV(user, thread)
+		}
+	}
+
 	return nil
 }
 
@@ -1363,9 +1426,9 @@ func (user *User) handleGroupUpdate(evt *events.GroupInfo) {
 	case evt.Locked != nil:
 		portal.RestrictMetadataChanges(evt.Locked.IsLocked)
 	case evt.Name != nil:
-		portal.UpdateName(evt.Name.Name, evt.Name.NameSetBy, true)
+		portal.UpdateName(evt.Name.Name, "" /*evt.Name.NameSetBy*/, true) // TODO: GV Commented out
 	case evt.Topic != nil:
-		portal.UpdateTopic(evt.Topic.Topic, evt.Topic.TopicSetBy, true)
+		portal.UpdateTopic(evt.Topic.Topic, "" /*evt.Topic.TopicSetBy*/, true) // TODO: GV Commented out
 	case evt.Leave != nil:
 		if evt.Sender != nil && !evt.Sender.IsEmpty() {
 			portal.HandleWhatsAppKick(user, *evt.Sender, evt.Leave)

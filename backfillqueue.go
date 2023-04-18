@@ -65,31 +65,37 @@ func (user *User) HandleBackfillRequestsLoop(backfillTypes []database.BackfillTy
 		req := user.BackfillQueue.GetNextBackfill(user.MXID, backfillTypes, waitForBackfillTypes, reCheckChannel)
 		user.log.Infofln("Handling backfill request %s", req)
 
-		conv := user.bridge.DB.HistorySync.GetConversation(user.MXID, req.Portal)
-		if conv == nil {
-			user.log.Debugfln("Could not find history sync conversation data for %s", req.Portal.String())
-			req.MarkDone()
-			continue
-		}
-		portal := user.GetPortalByJID(conv.PortalKey.JID)
+		// TODO Load conversation from user.Client and redo the below
+
+		/*
+			conv := user.bridge.DB.HistorySync.GetConversation(user.MXID, req.Portal)
+			if conv == nil {
+				user.log.Debugfln("Could not find history sync conversation data for %s", req.Portal.String())
+				req.MarkDone()
+				continue
+			}
+		*/
+		// portal := user.GetPortalByID(conv.PortalKey)
 
 		// Update the client store with basic chat settings.
-		if conv.MuteEndTime.After(time.Now()) {
-			user.Client.Store.ChatSettings.PutMutedUntil(conv.PortalKey.JID, conv.MuteEndTime)
-		}
-		if conv.Archived {
-			user.Client.Store.ChatSettings.PutArchived(conv.PortalKey.JID, true)
-		}
-		if conv.Pinned > 0 {
-			user.Client.Store.ChatSettings.PutPinned(conv.PortalKey.JID, true)
-		}
+		/*
+			if conv.MuteEndTime.After(time.Now()) {
+				user.Client.Store.ChatSettings.PutMutedUntil(conv.PortalKey.JID, conv.MuteEndTime)
+			}
+			if conv.Archived {
+				user.Client.Store.ChatSettings.PutArchived(conv.PortalKey.JID, true)
+			}
+			if conv.Pinned > 0 {
+				user.Client.Store.ChatSettings.PutPinned(conv.PortalKey.JID, true)
+			}
 
-		if conv.EphemeralExpiration != nil && portal.ExpirationTime != *conv.EphemeralExpiration {
-			portal.ExpirationTime = *conv.EphemeralExpiration
-			portal.Update(nil)
-		}
+			if conv.EphemeralExpiration != nil && portal.ExpirationTime != *conv.EphemeralExpiration {
+				portal.ExpirationTime = *conv.EphemeralExpiration
+				portal.Update(nil)
+			}
 
-		user.backfillInChunks(req, conv, portal)
+			user.backfillInChunks(req, conv, portal)
+		*/
 		req.MarkDone()
 	}
 }

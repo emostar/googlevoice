@@ -45,7 +45,7 @@ func (uq *UserQuery) New() *User {
 }
 
 func (uq *UserQuery) GetAll() (users []*User) {
-	rows, err := uq.db.Query(`SELECT mxid, primary_did, management_room, space_room, timezone FROM "user"`)
+	rows, err := uq.db.Query(`SELECT mxid, primary_did, management_room, space_room, cookies FROM "user"`)
 	if err != nil || rows == nil {
 		return nil
 	}
@@ -58,7 +58,7 @@ func (uq *UserQuery) GetAll() (users []*User) {
 
 func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
 	row := uq.db.QueryRow(
-		`SELECT mxid, primary_did, management_room, space_room, timezone FROM "user" WHERE mxid=$1`,
+		`SELECT mxid, primary_did, management_room, space_room, cookies FROM "user" WHERE mxid=$1`,
 		userID,
 	)
 	if row == nil {
@@ -69,7 +69,7 @@ func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
 
 func (uq *UserQuery) GetByUsername(username string) *User {
 	row := uq.db.QueryRow(
-		`SELECT mxid, primary_did, management_room, space_room, timezone FROM "user" WHERE username=$1`,
+		`SELECT mxid, primary_did, management_room, space_room, cookies FROM "user" WHERE username=$1`,
 		username,
 	)
 	if row == nil {
@@ -90,6 +90,7 @@ type User struct {
 	PhoneLastSeen   time.Time // TODO Remove
 	PhoneLastPinged time.Time // TODO Remove
 	Timezone        string
+	Cookies         string
 
 	lastReadCache     map[PortalKey]time.Time
 	lastReadCacheLock sync.Mutex
@@ -98,10 +99,10 @@ type User struct {
 }
 
 func (user *User) Scan(row dbutil.Scannable) *User {
-	var timezone, primaryDID sql.NullString
+	var cookies, primaryDID sql.NullString
 	err := row.Scan(
 		&user.MXID, &primaryDID, &user.ManagementRoom, &user.SpaceRoom,
-		&timezone,
+		&cookies,
 	)
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -109,7 +110,8 @@ func (user *User) Scan(row dbutil.Scannable) *User {
 		}
 		return nil
 	}
-	user.Timezone = timezone.String
+	user.Cookies = cookies.String
+	user.PrimaryDID = primaryDID.String
 	if len(primaryDID.String) > 0 {
 		user.JID = types.NewADJID(primaryDID.String, 1, 1) // TODO Change JID to just an ID
 	}
@@ -155,9 +157,9 @@ func (user *User) phoneLastPingedPtr() *int64 {
 
 func (user *User) Insert() {
 	_, err := user.db.Exec(
-		`INSERT INTO "user" (mxid, primary_did, management_room, space_room, timezone) VALUES ($1, $2, $3, $4, $5)`,
+		`INSERT INTO "user" (mxid, primary_did, management_room, space_room, cookies) VALUES ($1, $2, $3, $4, $5)`,
 		user.MXID, user.PrimaryDID, user.ManagementRoom, user.SpaceRoom,
-		user.Timezone,
+		user.Cookies,
 	)
 	if err != nil {
 		user.log.Warnfln("Failed to insert %s: %v", user.MXID, err)
@@ -166,8 +168,8 @@ func (user *User) Insert() {
 
 func (user *User) Update() {
 	_, err := user.db.Exec(
-		`UPDATE "user" SET primary_did=$1, management_room=$2, space_room=$3, timezone=$4 WHERE mxid=$5`,
-		user.PrimaryDID, user.ManagementRoom, user.SpaceRoom, user.Timezone,
+		`UPDATE "user" SET primary_did=$1, management_room=$2, space_room=$3, cookies=$4 WHERE mxid=$5`,
+		user.PrimaryDID, user.ManagementRoom, user.SpaceRoom, user.Cookies,
 		user.MXID,
 	)
 	if err != nil {

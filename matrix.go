@@ -30,7 +30,7 @@ import (
 	"github.com/emostar/mautrix-gvoice/database"
 )
 
-func (br *GVBride) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User, brGhost bridge.Ghost) {
+func (br *GVBridge) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User, brGhost bridge.Ghost) {
 	inviter := brInviter.(*User)
 	puppet := brGhost.(*Puppet)
 	key := database.NewPortalKey(puppet.JID, inviter.JID)
@@ -63,7 +63,7 @@ func (br *GVBride) CreatePrivatePortal(roomID id.RoomID, brInviter bridge.User, 
 	_, _ = intent.LeaveRoom(roomID)
 }
 
-func (br *GVBride) createPrivatePortalFromInvite(roomID id.RoomID, inviter *User, puppet *Puppet, portal *Portal) {
+func (br *GVBridge) createPrivatePortalFromInvite(roomID id.RoomID, inviter *User, puppet *Puppet, portal *Portal) {
 	// TODO check if room is already encrypted
 	var existingEncryption event.EncryptionEventContent
 	var encryptionEnabled bool
@@ -113,7 +113,7 @@ func (br *GVBride) createPrivatePortalFromInvite(roomID id.RoomID, inviter *User
 	_, _ = intent.SendNotice(roomID, "Private chat portal created")
 }
 
-func (br *GVBride) HandlePresence(evt *event.Event) {
+func (br *GVBridge) HandlePresence(evt *event.Event) {
 	user := br.GetUserByMXIDIfExists(evt.Sender)
 	if user == nil || !user.IsLoggedIn() {
 		return

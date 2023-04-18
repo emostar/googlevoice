@@ -75,7 +75,8 @@ func (user *User) handleHistorySyncsLoop() {
 	// Deferred backfills should be handled synchronously so as not to
 	// overload the homeserver. Users can configure their backfill stages
 	// to be more or less aggressive with backfilling at this stage.
-	go user.HandleBackfillRequestsLoop([]database.BackfillType{database.BackfillDeferred}, forwardAndImmediate)
+	// TODO Restore this
+	// go user.HandleBackfillRequestsLoop([]database.BackfillType{database.BackfillDeferred}, forwardAndImmediate)
 
 	if user.bridge.Config.Bridge.HistorySync.MediaRequests.AutoRequestMedia &&
 		user.bridge.Config.Bridge.HistorySync.MediaRequests.RequestMethod == config.MediaRequestMethodLocalTime {
@@ -182,9 +183,9 @@ func (user *User) backfillInChunks(req *database.Backfill, conv *database.Histor
 		return
 	}
 
-	backfillState := user.bridge.DB.Backfill.GetBackfillState(user.MXID, &portal.Key)
+	backfillState := user.bridge.DB.Backfill.GetBackfillState(user.MXID, portal.KeyGV)
 	if backfillState == nil {
-		backfillState = user.bridge.DB.Backfill.NewBackfillState(user.MXID, &portal.Key)
+		backfillState = user.bridge.DB.Backfill.NewBackfillState(user.MXID, portal.KeyGV)
 	}
 	backfillState.SetProcessingBatch(true)
 	defer backfillState.SetProcessingBatch(false)
@@ -538,7 +539,7 @@ func (user *User) EnqueueImmediateBackfills(portals []*Portal) {
 	for priority, portal := range portals {
 		maxMessages := user.bridge.Config.Bridge.HistorySync.Immediate.MaxEvents
 		initialBackfill := user.bridge.DB.Backfill.NewWithValues(
-			user.MXID, database.BackfillImmediate, priority, &portal.Key, nil, maxMessages, maxMessages, 0,
+			user.MXID, database.BackfillImmediate, priority, portal.KeyGV, nil, maxMessages, maxMessages, 0,
 		)
 		initialBackfill.Insert()
 	}
@@ -554,7 +555,7 @@ func (user *User) EnqueueDeferredBackfills(portals []*Portal) {
 				startDate = &startDaysAgo
 			}
 			backfillMessages := user.bridge.DB.Backfill.NewWithValues(
-				user.MXID, database.BackfillDeferred, stageIdx*numPortals+portalIdx, &portal.Key, startDate,
+				user.MXID, database.BackfillDeferred, stageIdx*numPortals+portalIdx, portal.KeyGV, startDate,
 				backfillStage.MaxBatchEvents, -1, backfillStage.BatchDelay,
 			)
 			backfillMessages.Insert()
@@ -569,7 +570,7 @@ func (user *User) EnqueueForwardBackfills(portals []*Portal) {
 			continue
 		}
 		backfill := user.bridge.DB.Backfill.NewWithValues(
-			user.MXID, database.BackfillForward, priority, &portal.Key, &lastMsg.Timestamp, -1, -1, 0,
+			user.MXID, database.BackfillForward, priority, portal.KeyGV, &lastMsg.Timestamp, -1, -1, 0,
 		)
 		backfill.Insert()
 	}

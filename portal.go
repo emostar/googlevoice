@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/beeper/libgvoice/models"
 	"github.com/chai2010/webp"
 	"github.com/tidwall/gjson"
 	"golang.org/x/image/draw"
@@ -73,21 +74,22 @@ const StatusBroadcastTopic = "WhatsApp status updates from your contacts"
 const StatusBroadcastName = "WhatsApp Status Broadcast"
 const BroadcastTopic = "WhatsApp broadcast list"
 const UnnamedBroadcastName = "Unnamed broadcast list"
-const PrivateChatTopic = "WhatsApp private chat"
+const PrivateChatTopic = "GoogleVoice thread"
+const GroupChatTopic = "GoogleVoice group thread"
 
 var ErrStatusBroadcastDisabled = errors.New("status bridging is disabled")
 
-func (br *GVBride) GetPortalByMXID(mxid id.RoomID) *Portal {
+func (br *GVBridge) GetPortalByMXID(mxid id.RoomID) *Portal {
 	br.portalsLock.Lock()
 	defer br.portalsLock.Unlock()
 	portal, ok := br.portalsByMXID[mxid]
 	if !ok {
-		return br.loadDBPortal(br.DB.Portal.GetByMXID(mxid), nil)
+		return br.loadDBPortal(br.DB.Portal.GetByMXID(mxid), "")
 	}
 	return portal
 }
 
-func (br *GVBride) GetIPortal(mxid id.RoomID) bridge.Portal {
+func (br *GVBridge) GetIPortal(mxid id.RoomID) bridge.Portal {
 	p := br.GetPortalByMXID(mxid)
 	if p == nil {
 		return nil
@@ -110,31 +112,41 @@ func (portal *Portal) ReceiveMatrixEvent(user bridge.User, evt *event.Event) {
 	}
 }
 
-func (br *GVBride) GetPortalByJID(key database.PortalKey) *Portal {
+func (br *GVBridge) GetPortalByThreadID(key string) *Portal {
 	br.portalsLock.Lock()
 	defer br.portalsLock.Unlock()
-	portal, ok := br.portalsByJID[key]
+	portal, ok := br.portalsByThreadID[key]
 	if !ok {
-		return br.loadDBPortal(br.DB.Portal.GetByJID(key), &key)
+		return br.loadDBPortal(br.DB.Portal.GetByThreadID(key), key)
 	}
 	return portal
 }
 
-func (br *GVBride) GetExistingPortalByJID(key database.PortalKey) *Portal {
+func (br *GVBridge) GetPortalByJID(key database.PortalKey) *Portal {
 	br.portalsLock.Lock()
 	defer br.portalsLock.Unlock()
 	portal, ok := br.portalsByJID[key]
 	if !ok {
-		return br.loadDBPortal(br.DB.Portal.GetByJID(key), nil)
+		// return br.loadDBPortal(br.DB.Portal.GetByJID(key), &key)
 	}
 	return portal
 }
 
-func (br *GVBride) GetAllPortals() []*Portal {
+func (br *GVBridge) GetExistingPortalByJID(key database.PortalKey) *Portal {
+	br.portalsLock.Lock()
+	defer br.portalsLock.Unlock()
+	portal, ok := br.portalsByJID[key]
+	if !ok {
+		return br.loadDBPortal(br.DB.Portal.GetByJID(key), "")
+	}
+	return portal
+}
+
+func (br *GVBridge) GetAllPortals() []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.GetAll())
 }
 
-func (br *GVBride) GetAllIPortals() (iportals []bridge.Portal) {
+func (br *GVBridge) GetAllIPortals() (iportals []bridge.Portal) {
 	portals := br.GetAllPortals()
 	iportals = make([]bridge.Portal, len(portals))
 	for i, portal := range portals {
@@ -143,15 +155,15 @@ func (br *GVBride) GetAllIPortals() (iportals []bridge.Portal) {
 	return iportals
 }
 
-func (br *GVBride) GetAllPortalsByJID(jid types.JID) []*Portal {
+func (br *GVBridge) GetAllPortalsByJID(jid types.JID) []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.GetAllByJID(jid))
 }
 
-func (br *GVBride) GetAllByParentGroup(jid types.JID) []*Portal {
+func (br *GVBridge) GetAllByParentGroup(jid types.JID) []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.GetAllByParentGroup(jid))
 }
 
-func (br *GVBride) dbPortalsToPortals(dbPortals []*database.Portal) []*Portal {
+func (br *GVBridge) dbPortalsToPortals(dbPortals []*database.Portal) []*Portal {
 	br.portalsLock.Lock()
 	defer br.portalsLock.Unlock()
 	output := make([]*Portal, len(dbPortals))
@@ -161,24 +173,24 @@ func (br *GVBride) dbPortalsToPortals(dbPortals []*database.Portal) []*Portal {
 		}
 		portal, ok := br.portalsByJID[dbPortal.Key]
 		if !ok {
-			portal = br.loadDBPortal(dbPortal, nil)
+			portal = br.loadDBPortal(dbPortal, "")
 		}
 		output[index] = portal
 	}
 	return output
 }
 
-func (br *GVBride) loadDBPortal(dbPortal *database.Portal, key *database.PortalKey) *Portal {
+func (br *GVBridge) loadDBPortal(dbPortal *database.Portal, key string) *Portal {
 	if dbPortal == nil {
-		if key == nil {
+		if key == "" {
 			return nil
 		}
 		dbPortal = br.DB.Portal.New()
-		dbPortal.Key = *key
+		dbPortal.KeyGV = key
 		dbPortal.Insert()
 	}
 	portal := br.NewPortal(dbPortal)
-	br.portalsByJID[portal.Key] = portal
+	br.portalsByThreadID[portal.KeyGV] = portal
 	if len(portal.MXID) > 0 {
 		br.portalsByMXID[portal.MXID] = portal
 	}
@@ -189,7 +201,7 @@ func (portal *Portal) GetUsers() []*User {
 	return nil
 }
 
-func (br *GVBride) newBlankPortal(key database.PortalKey) *Portal {
+func (br *GVBridge) newBlankPortal(key database.PortalKey) *Portal {
 	portal := &Portal{
 		bridge: br,
 		log:    br.Log.Sub(fmt.Sprintf("Portal/%s", key)),
@@ -204,14 +216,14 @@ func (br *GVBride) newBlankPortal(key database.PortalKey) *Portal {
 	return portal
 }
 
-func (br *GVBride) NewManualPortal(key database.PortalKey) *Portal {
+func (br *GVBridge) NewManualPortal(key database.PortalKey) *Portal {
 	portal := br.newBlankPortal(key)
 	portal.Portal = br.DB.Portal.New()
 	portal.Key = key
 	return portal
 }
 
-func (br *GVBride) NewPortal(dbPortal *database.Portal) *Portal {
+func (br *GVBridge) NewPortal(dbPortal *database.Portal) *Portal {
 	portal := br.newBlankPortal(dbPortal.Key)
 	portal.Portal = dbPortal
 	return portal
@@ -254,7 +266,7 @@ type recentlyHandledWrapper struct {
 type Portal struct {
 	*database.Portal
 
-	bridge *GVBride
+	bridge *GVBridge
 	log    log.Logger
 
 	roomCreateLock sync.Mutex
@@ -1198,7 +1210,7 @@ func (portal *Portal) UpdateAvatar(user *User, setBy types.JID, updateInfo bool)
 	return true
 }
 
-func (portal *Portal) UpdateName(name string, setBy types.JID, updateInfo bool) bool {
+func (portal *Portal) UpdateName(name string, setByThreadID string, updateInfo bool) bool {
 	if name == "" && portal.IsBroadcastList() {
 		name = UnnamedBroadcastName
 	}
@@ -1212,8 +1224,8 @@ func (portal *Portal) UpdateName(name string, setBy types.JID, updateInfo bool) 
 
 		if len(portal.MXID) > 0 {
 			intent := portal.MainIntent()
-			if !setBy.IsEmpty() {
-				intent = portal.bridge.GetPuppetByJID(setBy).IntentFor(portal)
+			if setByThreadID != "" {
+				intent = portal.bridge.GetPuppetByID(setByThreadID).IntentFor(portal)
 			}
 			_, err := intent.SetRoomName(portal.MXID, name)
 			if errors.Is(err, mautrix.MForbidden) && intent != portal.MainIntent() {
@@ -1234,15 +1246,15 @@ func (portal *Portal) UpdateName(name string, setBy types.JID, updateInfo bool) 
 	return false
 }
 
-func (portal *Portal) UpdateTopic(topic string, setBy types.JID, updateInfo bool) bool {
+func (portal *Portal) UpdateTopic(topic string, setByThreadID string, updateInfo bool) bool {
 	if portal.Topic != topic || !portal.TopicSet {
 		portal.log.Debugfln("Updating topic %q -> %q", portal.Topic, topic)
 		portal.Topic = topic
 		portal.TopicSet = false
 
 		intent := portal.MainIntent()
-		if !setBy.IsEmpty() {
-			intent = portal.bridge.GetPuppetByJID(setBy).IntentFor(portal)
+		if setByThreadID != "" {
+			intent = portal.bridge.GetPuppetByID(setByThreadID).IntentFor(portal)
 		}
 		_, err := intent.SetRoomTopic(portal.MXID, topic)
 		if errors.Is(err, mautrix.MForbidden) && intent != portal.MainIntent() {
@@ -1288,8 +1300,8 @@ func (portal *Portal) UpdateMetadata(user *User, groupInfo *types.GroupInfo) boo
 		return false
 	} else if portal.IsStatusBroadcastList() {
 		update := false
-		update = portal.UpdateName(StatusBroadcastName, types.EmptyJID, false) || update
-		update = portal.UpdateTopic(StatusBroadcastTopic, types.EmptyJID, false) || update
+		update = portal.UpdateName(StatusBroadcastName, "", false) || update
+		update = portal.UpdateTopic(StatusBroadcastTopic, "", false) || update
 		return update
 	} else if portal.IsBroadcastList() {
 		update := false
@@ -1317,8 +1329,8 @@ func (portal *Portal) UpdateMetadata(user *User, groupInfo *types.GroupInfo) boo
 
 	portal.SyncParticipants(user, groupInfo)
 	update := false
-	update = portal.UpdateName(groupInfo.Name, groupInfo.NameSetBy, false) || update
-	update = portal.UpdateTopic(groupInfo.Topic, groupInfo.TopicSetBy, false) || update
+	// update = portal.UpdateName(groupInfo.Name, groupInfo.NameSetBy, false) || update
+	// update = portal.UpdateTopic(groupInfo.Topic, groupInfo.TopicSetBy, false) || update
 	update = portal.UpdateParentGroup(user, groupInfo.LinkedParentJID, false) || update
 	if portal.ExpirationTime != groupInfo.DisappearingTimer {
 		update = true
@@ -1340,6 +1352,29 @@ func (portal *Portal) UpdateMetadata(user *User, groupInfo *types.GroupInfo) boo
 
 func (portal *Portal) ensureUserInvited(user *User) bool {
 	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat())
+}
+
+func (portal *Portal) UpdateMatrixRoomGV(user *User, thread models.Thread) bool {
+	if len(portal.MXID) == 0 {
+		return false
+	}
+	portal.log.Infoln("Syncing portal for", user.MXID)
+
+	portal.ensureUserInvited(user)
+	go portal.addToPersonalSpace(user)
+
+	// update := false
+	// update = portal.UpdateMetadata(user, groupInfo) || update
+	// if !portal.IsPrivateChat() && !portal.IsBroadcastList() {
+	// 	update = portal.UpdateAvatar(user, types.EmptyJID, false) || update
+	// }
+	// if update || portal.LastSync.Add(24*time.Hour).Before(time.Now()) {
+	// 	portal.LastSync = time.Now()
+	// 	portal.Update(nil)
+	// 	portal.UpdateBridgeInfo()
+	// 	portal.updateChildRooms()
+	// }
+	return true
 }
 
 func (portal *Portal) UpdateMatrixRoom(user *User, groupInfo *types.GroupInfo) bool {
@@ -1552,6 +1587,186 @@ func (portal *Portal) GetEncryptionEventContent() (evt *event.EncryptionEventCon
 	return
 }
 
+func (portal *Portal) CreateMatrixRoomGV(user *User, thread models.Thread, isFullInfo, backfill bool) error {
+	portal.roomCreateLock.Lock()
+	defer portal.roomCreateLock.Unlock()
+	if len(portal.MXID) > 0 {
+		return nil
+	}
+
+	intent := portal.MainIntent()
+	if err := intent.EnsureRegistered(); err != nil {
+		return err
+	}
+
+	portal.log.Infoln("Creating Matrix room. Info source:", user.MXID)
+
+	// TODO Do we need to separate group chats and private chats?
+	puppet := portal.bridge.GetPuppetByID(portal.KeyGV)
+	puppet.Displayname = thread.Contacts[0].Name
+	puppet.Update()
+	// puppet.SyncContact(user, true, false, "creating private chat portal")
+	// if portal.bridge.Config.Bridge.PrivateChatPortalMeta || portal.bridge.Config.Bridge.Encryption.Default {
+	portal.Name = puppet.Displayname
+	// portal.AvatarURL = puppet.AvatarURL
+	// portal.Avatar = puppet.Avatar
+	// } else {
+	//	portal.Name = ""
+	// }
+	portal.Topic = PrivateChatTopic
+
+	powerLevels := portal.GetBasePowerLevels()
+
+	bridgeInfoStateKey, bridgeInfo := portal.getBridgeInfo()
+
+	initialState := []*event.Event{{
+		Type: event.StatePowerLevels,
+		Content: event.Content{
+			Parsed: powerLevels,
+		},
+	}, {
+		Type:     event.StateBridge,
+		Content:  event.Content{Parsed: bridgeInfo},
+		StateKey: &bridgeInfoStateKey,
+	}, {
+		// TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
+		Type:     event.StateHalfShotBridge,
+		Content:  event.Content{Parsed: bridgeInfo},
+		StateKey: &bridgeInfoStateKey,
+	}}
+	if !portal.AvatarURL.IsEmpty() {
+		initialState = append(
+			initialState, &event.Event{
+				Type: event.StateRoomAvatar,
+				Content: event.Content{
+					Parsed: event.RoomAvatarEventContent{URL: portal.AvatarURL},
+				},
+			},
+		)
+		portal.AvatarSet = true
+	}
+
+	var invite []id.UserID
+
+	if portal.bridge.Config.Bridge.Encryption.Default {
+		initialState = append(
+			initialState, &event.Event{
+				Type: event.StateEncryption,
+				Content: event.Content{
+					Parsed: portal.GetEncryptionEventContent(),
+				},
+			},
+		)
+		portal.Encrypted = true
+		if portal.IsPrivateChat() {
+			invite = append(invite, portal.bridge.Bot.UserID)
+		}
+	}
+
+	creationContent := make(map[string]interface{})
+	if !portal.bridge.Config.Bridge.FederateRooms {
+		creationContent["m.federate"] = false
+	}
+	if portal.IsParent {
+		creationContent["type"] = event.RoomTypeSpace
+	} else if parent := portal.GetParentPortal(); parent != nil && parent.MXID != "" {
+		initialState = append(
+			initialState, &event.Event{
+				Type:     event.StateSpaceParent,
+				StateKey: proto.String(parent.MXID.String()),
+				Content: event.Content{
+					Parsed: &event.SpaceParentEventContent{
+						Via:       []string{portal.bridge.Config.Homeserver.Domain},
+						Canonical: true,
+					},
+				},
+			},
+		)
+	}
+	autoJoinInvites := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
+	if autoJoinInvites {
+		portal.log.Debugfln("Hungryserv mode: adding all group members in create request")
+		// TODO groupInfo != nil check was here
+		invite = append(invite, user.MXID)
+	}
+	resp, err := intent.CreateRoom(
+		&mautrix.ReqCreateRoom{
+			Visibility:      "private",
+			Name:            portal.Name,
+			Topic:           portal.Topic,
+			Invite:          invite,
+			Preset:          "private_chat",
+			IsDirect:        portal.IsPrivateChat(),
+			InitialState:    initialState,
+			CreationContent: creationContent,
+
+			BeeperAutoJoinInvites: autoJoinInvites,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	portal.log.Infoln("Matrix room created:", resp.RoomID)
+	portal.InSpace = false
+	portal.NameSet = len(portal.Name) > 0
+	portal.TopicSet = len(portal.Topic) > 0
+	portal.MXID = resp.RoomID
+	portal.bridge.portalsLock.Lock()
+	portal.bridge.portalsByMXID[portal.MXID] = portal
+	portal.bridge.portalsLock.Unlock()
+	portal.Update(nil)
+
+	// We set the memberships beforehand to make sure the encryption key exchange in initial backfill knows the users are here.
+	inviteMembership := event.MembershipInvite
+	if autoJoinInvites {
+		inviteMembership = event.MembershipJoin
+	}
+	for _, userID := range invite {
+		portal.bridge.StateStore.SetMembership(portal.MXID, userID, inviteMembership)
+	}
+
+	if !autoJoinInvites {
+		portal.ensureUserInvited(user)
+	}
+	user.syncChatDoublePuppetDetails(portal, true)
+
+	go portal.updateCommunitySpace(user, true, true)
+	go portal.addToPersonalSpace(user)
+
+	// TODO groupInfo != nil check was here
+
+	if portal.IsPrivateChat() {
+		puppet := user.bridge.GetPuppetByID(portal.KeyGV)
+
+		if portal.bridge.Config.Bridge.Encryption.Default {
+			err = portal.bridge.Bot.EnsureJoined(portal.MXID)
+			if err != nil {
+				portal.log.Errorln("Failed to join created portal with bridge bot for e2be:", err)
+			}
+		}
+
+		user.UpdateDirectChats(map[id.UserID][]id.RoomID{puppet.MXID: {portal.MXID}})
+	} else if portal.IsParent {
+		portal.updateChildRooms()
+	}
+
+	firstEventResp, err := portal.MainIntent().SendMessageEvent(portal.MXID, PortalCreationDummyEvent, struct{}{})
+	if err != nil {
+		portal.log.Errorln("Failed to send dummy event to mark portal creation:", err)
+	} else {
+		portal.FirstEventID = firstEventResp.EventID
+		portal.Update(nil)
+	}
+
+	if user.bridge.Config.Bridge.HistorySync.Backfill && backfill {
+		portals := []*Portal{portal}
+		user.EnqueueImmediateBackfills(portals)
+		user.EnqueueDeferredBackfills(portals)
+		user.BackfillQueue.ReCheck()
+	}
+	return nil
+}
+
 func (portal *Portal) CreateMatrixRoom(user *User, groupInfo *types.GroupInfo, isFullInfo, backfill bool) error {
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()
@@ -1612,7 +1827,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, groupInfo *types.GroupInfo, i
 				user.log.Debugfln(
 					"Skipping creating matrix room for %s because the user is not a participant", portal.Key.JID,
 				)
-				user.bridge.DB.Backfill.DeleteAllForPortal(user.MXID, portal.Key)
+				user.bridge.DB.Backfill.DeleteAllForPortal(user.MXID, portal.KeyGV)
 				user.bridge.DB.HistorySync.DeleteAllMessagesForPortal(user.MXID, portal.Key)
 				return err
 			} else if err != nil {
@@ -1890,7 +2105,8 @@ func (portal *Portal) updateCommunitySpace(user *User, add, updateInfo bool) boo
 }
 
 func (portal *Portal) IsPrivateChat() bool {
-	return portal.Key.JID.Server == types.DefaultUserServer
+	return true
+	// return portal.Key.JID.Server == types.DefaultUserServer
 }
 
 func (portal *Portal) IsGroupChat() bool {
@@ -1933,7 +2149,7 @@ func (portal *Portal) GetParentPortal() *Portal {
 
 func (portal *Portal) MainIntent() *appservice.IntentAPI {
 	if portal.IsPrivateChat() {
-		return portal.bridge.GetPuppetByJID(portal.Key.JID).DefaultIntent()
+		return portal.bridge.GetPuppetByID(portal.KeyGV).DefaultIntent()
 	}
 	return portal.bridge.Bot
 }

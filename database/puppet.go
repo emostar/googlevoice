@@ -56,9 +56,13 @@ func (pq *PuppetQuery) GetAll() (puppets []*Puppet) {
 }
 
 func (pq *PuppetQuery) Get(jid types.JID) *Puppet {
+	return pq.GetGV(jid.User)
+}
+
+func (pq *PuppetQuery) GetGV(id string) *Puppet {
 	row := pq.db.QueryRow(
 		"SELECT username, avatar, avatar_url, displayname, name_quality, name_set, avatar_set, last_sync, custom_mxid, access_token, next_batch, enable_presence, enable_receipts FROM puppet WHERE username=$1",
-		jid.User,
+		id,
 	)
 	if row == nil {
 		return nil
@@ -93,6 +97,7 @@ type Puppet struct {
 	db  *Database
 	log log.Logger
 
+	ID          string
 	JID         types.JID
 	Avatar      string
 	AvatarURL   id.ContentURI
@@ -124,6 +129,7 @@ func (puppet *Puppet) Scan(row dbutil.Scannable) *Puppet {
 		}
 		return nil
 	}
+	puppet.ID = username
 	puppet.JID = types.NewJID(username, types.DefaultUserServer)
 	puppet.Displayname = displayname.String
 	puppet.Avatar = avatar.String
@@ -143,10 +149,6 @@ func (puppet *Puppet) Scan(row dbutil.Scannable) *Puppet {
 }
 
 func (puppet *Puppet) Insert() {
-	if puppet.JID.Server != types.DefaultUserServer {
-		puppet.log.Warnfln("Not inserting %s: not a user", puppet.JID)
-		return
-	}
 	var lastSyncTs int64
 	if !puppet.LastSync.IsZero() {
 		lastSyncTs = puppet.LastSync.Unix()
@@ -156,12 +158,12 @@ func (puppet *Puppet) Insert() {
 		INSERT INTO puppet (username, avatar, avatar_url, avatar_set, displayname, name_quality, name_set, last_sync,
 		                    custom_mxid, access_token, next_batch, enable_presence, enable_receipts)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`, puppet.JID.User, puppet.Avatar, puppet.AvatarURL.String(), puppet.AvatarSet, puppet.Displayname,
+	`, puppet.ID, puppet.Avatar, puppet.AvatarURL.String(), puppet.AvatarSet, puppet.Displayname,
 		puppet.NameQuality, puppet.NameSet, lastSyncTs, puppet.CustomMXID, puppet.AccessToken, puppet.NextBatch,
 		puppet.EnablePresence, puppet.EnableReceipts,
 	)
 	if err != nil {
-		puppet.log.Warnfln("Failed to insert %s: %v", puppet.JID, err)
+		puppet.log.Warnfln("Failed to insert %s: %v", puppet.ID, err)
 	}
 }
 
@@ -180,9 +182,9 @@ func (puppet *Puppet) Update() {
 		puppet.AvatarSet,
 		lastSyncTs, puppet.CustomMXID, puppet.AccessToken, puppet.NextBatch, puppet.EnablePresence,
 		puppet.EnableReceipts,
-		puppet.JID.User,
+		puppet.ID,
 	)
 	if err != nil {
-		puppet.log.Warnfln("Failed to update %s: %v", puppet.JID, err)
+		puppet.log.Warnfln("Failed to update %s: %v", puppet.ID, err)
 	}
 }

@@ -44,7 +44,7 @@ import (
 )
 
 type ProvisioningAPI struct {
-	bridge *GVBride
+	bridge *GVBridge
 	log    log.Logger
 }
 
@@ -102,6 +102,7 @@ func (rw *responseWrap) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func (prov *ProvisioningAPI) AuthMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			prov.log.Debugln("Got request to", r.URL.Path)
 			auth := r.Header.Get("Authorization")
 			if len(auth) == 0 && strings.HasSuffix(r.URL.Path, "/login") {
 				authParts := strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",")

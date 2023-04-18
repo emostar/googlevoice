@@ -72,8 +72,8 @@ func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	}
 	req := mautrix.ReqLogin{
 		Identifier:               mautrix.UserIdentifier{Type: mautrix.IdentifierTypeUser, User: string(mxid)},
-		DeviceID:                 "WhatsApp Bridge",
-		InitialDeviceDisplayName: "WhatsApp Bridge",
+		DeviceID:                 "GoogleVoice Bridge",
+		InitialDeviceDisplayName: "GoogleVoice Bridge",
 	}
 	if loginSecret == "appservice" {
 		client.AccessToken = puppet.bridge.AS.Registration.AppToken
@@ -91,7 +91,7 @@ func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	return resp.AccessToken, nil
 }
 
-func (br *GVBride) newDoublePuppetClient(mxid id.UserID, accessToken string) (*mautrix.Client, error) {
+func (br *GVBridge) newDoublePuppetClient(mxid id.UserID, accessToken string) (*mautrix.Client, error) {
 	_, homeserver, err := mxid.Parse()
 	if err != nil {
 		return nil, err

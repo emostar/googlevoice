@@ -9,4 +9,7 @@
 *.db
 *.log
 
+gvoice.sqlite*
+logs/
+
 /mautrix-gvoice

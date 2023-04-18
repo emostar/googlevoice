@@ -36,7 +36,7 @@ import (
 
 var userIDRegex *regexp.Regexp
 
-func (br *GVBride) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
+func (br *GVBridge) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
 	if userIDRegex == nil {
 		userIDRegex = br.Config.MakeUserIDRegex("([0-9]+)")
 	}
@@ -48,7 +48,7 @@ func (br *GVBride) ParsePuppetMXID(mxid id.UserID) (jid types.JID, ok bool) {
 	return
 }
 
-func (br *GVBride) GetPuppetByMXID(mxid id.UserID) *Puppet {
+func (br *GVBridge) GetPuppetByMXID(mxid id.UserID) *Puppet {
 	jid, ok := br.ParsePuppetMXID(mxid)
 	if !ok {
 		return nil
@@ -57,25 +57,19 @@ func (br *GVBride) GetPuppetByMXID(mxid id.UserID) *Puppet {
 	return br.GetPuppetByJID(jid)
 }
 
-func (br *GVBride) GetPuppetByJID(jid types.JID) *Puppet {
-	jid = jid.ToNonAD()
-	if jid.Server == types.LegacyUserServer {
-		jid.Server = types.DefaultUserServer
-	} else if jid.Server != types.DefaultUserServer {
-		return nil
-	}
+func (br *GVBridge) GetPuppetByID(id string) *Puppet {
 	br.puppetsLock.Lock()
 	defer br.puppetsLock.Unlock()
-	puppet, ok := br.puppets[jid]
+	puppet, ok := br.gvPuppets[id]
 	if !ok {
-		dbPuppet := br.DB.Puppet.Get(jid)
+		dbPuppet := br.DB.Puppet.GetGV(id)
 		if dbPuppet == nil {
 			dbPuppet = br.DB.Puppet.New()
-			dbPuppet.JID = jid
+			dbPuppet.ID = id
 			dbPuppet.Insert()
 		}
 		puppet = br.NewPuppet(dbPuppet)
-		br.puppets[puppet.JID] = puppet
+		br.gvPuppets[puppet.ID] = puppet
 		if len(puppet.CustomMXID) > 0 {
 			br.puppetsByCustomMXID[puppet.CustomMXID] = puppet
 		}
@@ -83,7 +77,36 @@ func (br *GVBride) GetPuppetByJID(jid types.JID) *Puppet {
 	return puppet
 }
 
-func (br *GVBride) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
+func (br *GVBridge) GetPuppetByJID(jid types.JID) *Puppet {
+	return nil
+	/*
+		jid = jid.ToNonAD()
+		if jid.Server == types.LegacyUserServer {
+			jid.Server = types.DefaultUserServer
+		} else if jid.Server != types.DefaultUserServer {
+			return nil
+		}
+		br.puppetsLock.Lock()
+		defer br.puppetsLock.Unlock()
+		puppet, ok := br.puppets[jid]
+		if !ok {
+			dbPuppet := br.DB.Puppet.Get(jid)
+			if dbPuppet == nil {
+				dbPuppet = br.DB.Puppet.New()
+				dbPuppet.JID = jid
+				dbPuppet.Insert()
+			}
+			puppet = br.NewPuppet(dbPuppet)
+			br.puppets[puppet.JID] = puppet
+			if len(puppet.CustomMXID) > 0 {
+				br.puppetsByCustomMXID[puppet.CustomMXID] = puppet
+			}
+		}
+		return puppet
+	*/
+}
+
+func (br *GVBridge) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
 	br.puppetsLock.Lock()
 	defer br.puppetsLock.Unlock()
 	puppet, ok := br.puppetsByCustomMXID[mxid]
@@ -100,6 +123,7 @@ func (br *GVBride) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
 }
 
 func (user *User) GetIDoublePuppet() bridge.DoublePuppet {
+	user.log.Debugf("GetIDoublePuppet for %s", user.MXID)
 	p := user.bridge.GetPuppetByCustomMXID(user.MXID)
 	if p == nil || p.CustomIntent() == nil {
 		return nil
@@ -118,12 +142,12 @@ func (user *User) GetIGhost() bridge.Ghost {
 	return p
 }
 
-func (br *GVBride) IsGhost(id id.UserID) bool {
+func (br *GVBridge) IsGhost(id id.UserID) bool {
 	_, ok := br.ParsePuppetMXID(id)
 	return ok
 }
 
-func (br *GVBride) GetIGhost(id id.UserID) bridge.Ghost {
+func (br *GVBridge) GetIGhost(id id.UserID) bridge.Ghost {
 	p := br.GetPuppetByMXID(id)
 	if p == nil {
 		return nil
@@ -135,15 +159,15 @@ func (puppet *Puppet) GetMXID() id.UserID {
 	return puppet.MXID
 }
 
-func (br *GVBride) GetAllPuppetsWithCustomMXID() []*Puppet {
+func (br *GVBridge) GetAllPuppetsWithCustomMXID() []*Puppet {
 	return br.dbPuppetsToPuppets(br.DB.Puppet.GetAllWithCustomMXID())
 }
 
-func (br *GVBride) GetAllPuppets() []*Puppet {
+func (br *GVBridge) GetAllPuppets() []*Puppet {
 	return br.dbPuppetsToPuppets(br.DB.Puppet.GetAll())
 }
 
-func (br *GVBride) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
+func (br *GVBridge) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
 	br.puppetsLock.Lock()
 	defer br.puppetsLock.Unlock()
 	output := make([]*Puppet, len(dbPuppets))
@@ -151,10 +175,10 @@ func (br *GVBride) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
 		if dbPuppet == nil {
 			continue
 		}
-		puppet, ok := br.puppets[dbPuppet.JID]
+		puppet, ok := br.gvPuppets[dbPuppet.ID]
 		if !ok {
 			puppet = br.NewPuppet(dbPuppet)
-			br.puppets[dbPuppet.JID] = puppet
+			br.gvPuppets[dbPuppet.ID] = puppet
 			if len(dbPuppet.CustomMXID) > 0 {
 				br.puppetsByCustomMXID[dbPuppet.CustomMXID] = puppet
 			}
@@ -164,27 +188,27 @@ func (br *GVBride) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
 	return output
 }
 
-func (br *GVBride) FormatPuppetMXID(jid types.JID) id.UserID {
+func (br *GVBridge) FormatPuppetMXID(did string) id.UserID {
 	return id.NewUserID(
-		br.Config.Bridge.FormatUsername(jid.User),
+		br.Config.Bridge.FormatUsername(did),
 		br.Config.Homeserver.Domain,
 	)
 }
 
-func (br *GVBride) NewPuppet(dbPuppet *database.Puppet) *Puppet {
+func (br *GVBridge) NewPuppet(dbPuppet *database.Puppet) *Puppet {
 	return &Puppet{
 		Puppet: dbPuppet,
 		bridge: br,
-		log:    br.Log.Sub(fmt.Sprintf("Puppet/%s", dbPuppet.JID)),
+		log:    br.Log.Sub(fmt.Sprintf("Puppet/%s", dbPuppet.ID)),
 
-		MXID: br.FormatPuppetMXID(dbPuppet.JID),
+		MXID: br.FormatPuppetMXID(dbPuppet.ID),
 	}
 }
 
 type Puppet struct {
 	*database.Puppet
 
-	bridge *GVBride
+	bridge *GVBridge
 	log    log.Logger
 
 	typingIn id.RoomID
@@ -305,7 +329,7 @@ func (puppet *Puppet) updatePortalAvatar() {
 func (puppet *Puppet) updatePortalName() {
 	puppet.updatePortalMeta(
 		func(portal *Portal) {
-			portal.UpdateName(puppet.Displayname, types.EmptyJID, true)
+			portal.UpdateName(puppet.Displayname, "", true)
 		},
 	)
 }

@@ -29,9 +29,15 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+type PortalKeyGV string
+
 type PortalKey struct {
 	JID      types.JID
 	Receiver types.JID
+}
+
+func NewPortalKeyGV(threadID string) PortalKeyGV {
+	return PortalKeyGV(threadID)
 }
 
 func NewPortalKey(jid, receiver types.JID) PortalKey {
@@ -65,10 +71,16 @@ func (pq *PortalQuery) New() *Portal {
 	}
 }
 
-const portalColumns = "jid, receiver, mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set, encrypted, last_sync, is_parent, parent_group, in_space, first_event_id, next_batch_id, relay_user_id, expiration_time"
+const portalColumns = "jid, receiver, thread_id, mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set, encrypted, last_sync, is_parent, parent_group, in_space, first_event_id, next_batch_id, relay_user_id, expiration_time"
 
 func (pq *PortalQuery) GetAll() []*Portal {
 	return pq.getAll(fmt.Sprintf("SELECT %s FROM portal", portalColumns))
+}
+
+func (pq *PortalQuery) GetByThreadID(key string) *Portal {
+	return pq.get(
+		fmt.Sprintf("SELECT %s FROM portal WHERE thread_id=$1", portalColumns), key,
+	)
 }
 
 func (pq *PortalQuery) GetByJID(key PortalKey) *Portal {
@@ -147,6 +159,8 @@ type Portal struct {
 	db  *Database
 	log log.Logger
 
+	KeyGV string
+
 	Key  PortalKey
 	MXID id.RoomID
 
@@ -174,9 +188,11 @@ func (portal *Portal) Scan(row dbutil.Scannable) *Portal {
 	var mxid, avatarURL, firstEventID, nextBatchID, relayUserID, parentGroupJID sql.NullString
 	var lastSyncTs int64
 	err := row.Scan(
-		&portal.Key.JID, &portal.Key.Receiver, &mxid, &portal.Name, &portal.NameSet, &portal.Topic, &portal.TopicSet,
-		&portal.Avatar, &avatarURL, &portal.AvatarSet, &portal.Encrypted, &lastSyncTs, &portal.IsParent,
-		&parentGroupJID, &portal.InSpace, &firstEventID, &nextBatchID, &relayUserID, &portal.ExpirationTime,
+		&portal.Key.JID, &portal.Key.Receiver, &portal.KeyGV, &mxid,
+		&portal.Name, &portal.NameSet, &portal.Topic, &portal.TopicSet,
+		&portal.Avatar, &avatarURL, &portal.AvatarSet, &portal.Encrypted,
+		&lastSyncTs, &portal.IsParent, &parentGroupJID, &portal.InSpace,
+		&firstEventID, &nextBatchID, &relayUserID, &portal.ExpirationTime,
 	)
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -230,17 +246,18 @@ func (portal *Portal) lastSyncTs() int64 {
 func (portal *Portal) Insert() {
 	_, err := portal.db.Exec(
 		`
-		INSERT INTO portal (jid, receiver, mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		INSERT INTO portal (jid, receiver, thread_id, mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
 		                    encrypted, last_sync, is_parent, parent_group, in_space, first_event_id, next_batch_id,
 		                    relay_user_id, expiration_time)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`,
-		portal.Key.JID, portal.Key.Receiver, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic,
-		portal.TopicSet,
-		portal.Avatar, portal.AvatarURL.String(), portal.AvatarSet, portal.Encrypted, portal.lastSyncTs(),
-		portal.IsParent, portal.parentGroupPtr(), portal.InSpace, portal.FirstEventID.String(),
-		portal.NextBatchID.String(),
-		portal.relayUserPtr(), portal.ExpirationTime,
+		portal.Key.JID, portal.Key.Receiver, portal.KeyGV, portal.mxidPtr(),
+		portal.Name, portal.NameSet, portal.Topic, portal.TopicSet,
+		portal.Avatar, portal.AvatarURL.String(), portal.AvatarSet,
+		portal.Encrypted, portal.lastSyncTs(), portal.IsParent,
+		portal.parentGroupPtr(), portal.InSpace, portal.FirstEventID.String(),
+		portal.NextBatchID.String(), portal.relayUserPtr(),
+		portal.ExpirationTime,
 	)
 	if err != nil {
 		portal.log.Warnfln("Failed to insert %s: %v", portal.Key, err)
@@ -257,13 +274,13 @@ func (portal *Portal) Update(txn dbutil.Execable) {
 		SET mxid=$1, name=$2, name_set=$3, topic=$4, topic_set=$5, avatar=$6, avatar_url=$7, avatar_set=$8,
 		    encrypted=$9, last_sync=$10, is_parent=$11, parent_group=$12, in_space=$13,
 		    first_event_id=$14, next_batch_id=$15, relay_user_id=$16, expiration_time=$17
-		WHERE jid=$18 AND receiver=$19
+		WHERE thread_id=18
 	`, portal.mxidPtr(), portal.Name, portal.NameSet, portal.Topic, portal.TopicSet, portal.Avatar,
 		portal.AvatarURL.String(),
 		portal.AvatarSet, portal.Encrypted, portal.lastSyncTs(), portal.IsParent, portal.parentGroupPtr(),
 		portal.InSpace,
 		portal.FirstEventID.String(), portal.NextBatchID.String(), portal.relayUserPtr(), portal.ExpirationTime,
-		portal.Key.JID, portal.Key.Receiver,
+		portal.KeyGV,
 	)
 	if err != nil {
 		portal.log.Warnfln("Failed to update %s: %v", portal.Key, err)
@@ -286,13 +303,13 @@ func (portal *Portal) Delete() {
 			portal.log.Warnfln("Failed to commit portal delete transaction: %v", err)
 		}
 	}()
-	_, err = txn.Exec("UPDATE portal SET in_space=false WHERE parent_group=$1", portal.Key.JID)
+	_, err = txn.Exec("UPDATE portal SET in_space=false WHERE parent_group=$1", portal.KeyGV)
 	if err != nil {
-		portal.log.Warnfln("Failed to mark child groups of %v as not in space: %v", portal.Key.JID, err)
+		portal.log.Warnfln("Failed to mark child groups of %v as not in space: %v", portal.KeyGV, err)
 		return
 	}
-	_, err = txn.Exec("DELETE FROM portal WHERE jid=$1 AND receiver=$2", portal.Key.JID, portal.Key.Receiver)
+	_, err = txn.Exec("DELETE FROM portal WHERE thread_id=$1", portal.KeyGV)
 	if err != nil {
-		portal.log.Warnfln("Failed to delete %v: %v", portal.Key, err)
+		portal.log.Warnfln("Failed to delete %v: %v", portal.KeyGV, err)
 	}
 }

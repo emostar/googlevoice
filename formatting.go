@@ -39,7 +39,7 @@ const mentionedJIDsContextKey = "fi.mau.whatsapp.mentioned_jids"
 const disableMentionsContextKey = "fi.mau.whatsapp.no_mentions"
 
 type Formatter struct {
-	bridge *GVBride
+	bridge *GVBridge
 
 	matrixHTMLParser *format.HTMLParser
 
@@ -48,7 +48,7 @@ type Formatter struct {
 	waReplFuncText map[*regexp.Regexp]func(string) string
 }
 
-func NewFormatter(bridge *GVBride) *Formatter {
+func NewFormatter(bridge *GVBridge) *Formatter {
 	formatter := &Formatter{
 		bridge: bridge,
 		matrixHTMLParser: &format.HTMLParser{

@@ -40,7 +40,7 @@ func (portal *Portal) MarkDisappearing(txn dbutil.Execable, eventID id.EventID, 
 	}
 }
 
-func (br *GVBride) SleepAndDeleteUpcoming() {
+func (br *GVBridge) SleepAndDeleteUpcoming() {
 	for _, msg := range br.DB.DisappearingMessage.GetUpcomingScheduled(1 * time.Hour) {
 		portal := br.GetPortalByMXID(msg.RoomID)
 		if portal == nil {
